@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.1.0" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.0" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -385,17 +385,28 @@
 		});
 	}
 
+	// Each answer to the online-friends query: who's online now. Per friend we keep when they were last seen online
+	// (lastOnline), when this time online started (onlineSince, if we saw it start) and when we noticed them gone
+	// (lastOffline). The query runs every few minutes (more often while the window is open), so times are that close.
+	const ONLINE_SAME_SESSION_MS = 10 * 60_000; // seen online this recently before a reload: still the same time online
 	function captureOnlineFriends(result) {
 		const before = onlineFriendsAt ? onlineFriends : null; // the first answer after login is the starting point
 		onlineFriends = new Map(result.map((f) => [f.MemberNumber, f]));
-		onlineFriendsAt = Date.now();
+		const now = Date.now();
+		onlineFriendsAt = now;
 		if (before) for (const f of result) if (!before.has(f.MemberNumber)) notifyOnline(f);
-		if (prefs.captureProfiles) for (const f of result) {
-			updateRecord(f.MemberNumber, (rec) => {
-				if (!rec.name) rec.name = f.MemberName;
-				rec.lastOnline = Date.now();
-				rec.lastOnlineInfo = f;
-			});
+		if (prefs.captureProfiles) {
+			for (const f of result) {
+				updateRecord(f.MemberNumber, (rec) => {
+					if (!rec.name) rec.name = f.MemberName;
+					const prev = Math.max(rec.lastOnline || 0, rec.lastSeen || 0);
+					// Came online since the last answer; or, on the first answer, unknown unless they were online just before
+					if (before ? !before.has(f.MemberNumber) : !(prev && now - prev < ONLINE_SAME_SESSION_MS && (rec.lastOffline || 0) < prev)) rec.onlineSince = before ? now : null;
+					rec.lastOnline = now;
+					rec.lastOnlineInfo = f;
+				});
+			}
+			if (before) for (const m of before.keys()) if (!onlineFriends.has(m)) updateRecord(m, (rec) => (rec.lastOffline = now));
 		}
 		ui.refreshSoon();
 		ui.onOutboxChanged();
@@ -2042,6 +2053,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					h("div", { id: "fm-nav" }),
 					h("span", { style: "flex:1" }),
 					h("span", { class: "fm-muted", id: "fm-status" }),
+					h("button", { onclick: () => open(me(), "profiles"), title: "Your own profile, live" }, "👤 My profile"),
 					h("button", { onclick: close, title: "Close (Esc)" }, "✕")
 				),
 				h("div", { id: "fm-body" }, h("div", { id: "fm-side" }, h("div", { id: "fm-tools" }), h("div", { id: "fm-list" })), h("div", { id: "fm-detail" }))
@@ -2336,7 +2348,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 								h("span", { class: "grow" }, f.name),
 								convs.get(f.member)?.unread ? h("span", { class: "fm-badge" }, String(convs.get(f.member).unread)) : null,
 							],
-							`#${f.member} · ${f.online ? onlineText(f.online) : f.friend ? "offline" : "not a friend"}`
+							`#${f.member} · ${f.online ? onlineText(f.online) + onlineForText(f.member) : f.friend ? offlineText(f.member) : `not a friend${lastOnlineAt(f.member) ? ` · seen ${ago(lastOnlineAt(f.member))}` : ""}`}`
 						);
 					const inGroup = (f, id) => (groupsData.members[f.member] || []).includes(id);
 					const ungrouped = all.filter((f) => f.friend && !(groupsData.members[f.member] || []).length);
@@ -2509,10 +2521,27 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		function presenceText(member, online) {
 			if (member === Player.MemberNumber) return "you";
 			if (inRoomWith(member)) return "in your room now";
-			if (online) return onlineText(online);
-			return friendIds().has(member) ? "offline" : "not a friend (online status unknown)";
+			if (online) return onlineText(online) + onlineForText(member);
+			if (friendIds().has(member)) return offlineText(member);
+			const t = lastOnlineAt(member);
+			return `not a friend (online status unknown)${t ? ` · last seen ${ago(t)}` : ""}`;
 		}
 
+		// When someone was last known to be online: the friends query, or being in a room with you
+		function lastOnlineAt(member) {
+			const rec = records.get(member);
+			return Math.max(rec?.lastOnline || 0, rec?.lastSeen || 0);
+		}
+		function offlineText(member) {
+			const t = lastOnlineAt(member);
+			return t ? `offline · last online ${ago(t)}` : "offline";
+		}
+		// " · for 25m" while online, when we saw them come online
+		function onlineForText(member) {
+			const since = records.get(member)?.onlineSince;
+			if (!since || !onlineOf(member)) return "";
+			return Date.now() - since < 60_000 ? " · just came online" : ` · for ${fmtDuration(Date.now() - since)}`;
+		}
 		function onlineText(f) {
 			if (f.here) return "in your room now";
 			if (f.ChatRoomName) return `online in “${f.ChatRoomName}”${f.ChatRoomSpace ? ` (${f.ChatRoomSpace})` : ""}`;
@@ -4016,7 +4045,9 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 							["Add-ons", addonChips(rec)],
 							["Item permission", d.ItemPermission != null ? String(d.ItemPermission) : null],
 							["First cached", fmtDate(rec.firstSeen)],
-							["Last online (friends query)", rec.lastOnline ? fmtDate(rec.lastOnline) : null],
+							["Last online", lastOnlineAt(selected) ? fmtDate(lastOnlineAt(selected)) : null],
+							["Online since", rec.onlineSince && onlineOf(selected) ? fmtDate(rec.onlineSince) : null],
+							["Went offline", rec.lastOffline && rec.lastOffline > (rec.lastOnline || 0) ? `${fmtDate(rec.lastOffline)} (noticed)` : null],
 						]),
 						rep.length ? h("h3", {}, "Reputation") : null,
 						rep.length ? kv(rep.map((r) => [r.Type, String(r.Value)])) : null
@@ -4728,7 +4759,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		function addonChips(rec) {
 			let entries; // [{ name, label, note, unknown }]
 			let footnote;
-			if (rec?.live && typeof bcModSdk !== "undefined") {
+			if (rec?.live && typeof bcModSdk?.getModsInfo === "function") {
 				// For yourself, list what's actually loaded rather than what other players could detect
 				entries = bcModSdk
 					.getModsInfo()
@@ -5003,6 +5034,7 @@ Not in the add-on directory: opens a GitHub search.`;
 	let scannedFor = null;
 	let lastOutboxPoll = 0; // last online-friends query sent by the tick
 	const ONLINE_POLL_OPEN_MS = 30_000;
+	const ONLINE_POLL_BG_MS = 5 * 60_000; // with the window closed: often enough for "last online" to be close
 	let pruneArmed = null;
 	const tickTimer = setInterval(() => {
 		watchSocket();
@@ -5014,8 +5046,9 @@ Not in the add-on directory: opens a GitHub search.`;
 			if (!dbOpening || dbOpening.owner !== me()) ensureDb().catch(() => {});
 			return;
 		}
-		// While the panel is open, keep who's online fresh (people log in while you look at it)
-		if (ui.isOpen() && Date.now() - lastOutboxPoll > ONLINE_POLL_OPEN_MS) {
+		// While the panel is open, keep who's online fresh (people log in while you look at it); otherwise every few
+		// minutes, so "last online" stays close
+		if (Date.now() - lastOutboxPoll > (ui.isOpen() ? ONLINE_POLL_OPEN_MS : ONLINE_POLL_BG_MS)) {
 			lastOutboxPoll = Date.now();
 			requestOnlineFriends();
 		}

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BC Toolkit: Little Black Book
 // @namespace    bc-toolkit
-// @version      1.1.0
+// @version      1.2.0
 // @description  Your little black book for Bondage Club: profiles of people you meet, chats, room logs, outfits and online alerts (/book)
 // @author       BountyHunter9000
 // @license      GPL-3.0-or-later
@@ -17,10 +17,10 @@
 // @match        https://www.bondageprojects.com/*
 // @run-at       document-end
 // @grant        none
-// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@book-v1.1.0/bc-dock/bc-dock.js
-// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@book-v1.1.0/bc-little-black-book/little-black-book.js
+// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@book-v1.2.0/bc-dock/bc-dock.js
+// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@book-v1.2.0/bc-little-black-book/little-black-book.js
 // @updateURL    https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js
 // @downloadURL  https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js
 // ==/UserScript==
 
-// The add-on is loaded by the @require lines above, from the book-v1.1.0 release of BountyHunter9000/bc-toolkit.
+// The add-on is loaded by the @require lines above, from the book-v1.2.0 release of BountyHunter9000/bc-toolkit.

@@ -1,8 +1,6 @@
 # Little Black Book
 
-*Part of [BC Toolkit](../README.md).*
-
-*Part of BC Toolkit. Formerly called Little Black Book: same add-on, same data.*
+*Part of [BC Toolkit](../README.md). Formerly called Friend Manager: same add-on, same data.*
 
 A Bondage Club add-on that combines a friend/profile cache with a chat client: beep and whisper
 conversations, a log of every chat room you enter, a room browser, and profiles of everyone you've
@@ -10,6 +8,7 @@ met that you can look up later, even when they're offline. It's meant to replace
 import its history.
 
 Open it from the **📓** tab on the shared dock's rail ([BC Dock](../bc-dock/README.md)), `/book`, or `/chat`. The window follows the dock's opacity setting (dock ⚙).
+**👤 My profile** in the top bar opens your own profile, live, from any section.
 
 Its window follows the dock's theme (dock ⚙ → Theme) and panel opacity. Colors that mean something
 keep their meaning in every theme: whispers blue, room changes teal, unread badges pink.
@@ -40,8 +39,14 @@ keep their meaning in every theme: whispers blue, room changes teal, unread badg
 - Type a member number and press Enter in the search box to start a conversation.
 
 ### Friends
-Your friend list, online friends first, with the room each one is in. Clicking someone opens your
-conversation with them.
+Your friend list, online friends first, with the room each one is in and how long they've been
+online ("for 25m", when Little Black Book saw them come online). Offline friends show when they were
+**last online** ("offline · last online 3h ago"), from the online-friends check or the last time you
+were in a room together. Little Black Book checks who's online every 5 minutes while the game is open
+(every 30 seconds while its window is open), so these times are that close. The time shown in
+**Chats** is the last message, not when they were last online. A profile's Overview also lists
+**Last online**, **Online since** and **Went offline** (when Little Black Book noticed). Clicking
+someone opens your conversation with them.
 
 **Groups**: make your own groups (name and colour) and put people in them with the **+ Group** tag
 picker in a chat or profile header (× removes). Anyone can be in several groups, including people
@@ -86,7 +91,7 @@ last time you shared a room.
 |---|---|---|
 | `ChatRoomSync*` server events | you're in a room with them | name, nickname, title, owner/lovers, description, appearance (incl. worn crafted items), public crafting list, reputation, `OnlineSharedSettings` |
 | Hidden `ChatRoomMessage`s | add-ons broadcast in the room | last message per add-on message type |
-| `AccountQuery OnlineFriends` | panel opens / Refresh | which friends are online and in which room |
+| `AccountQuery OnlineFriends` | every 5 min (30 s with the window open), Refresh | which friends are online and in which room; when each was last online, came online and went offline |
 
 Tabs: Overview, Description, Appearance (applied items and outfit, locks, crafted-by), Crafts
 (properties with the game's own descriptions), Room (current room lookup and last shared room),
