@@ -7,7 +7,7 @@
 // leave it alone, and a newer version takes over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 11; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book
+	const VERSION = 12; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -649,8 +649,9 @@
 		book: { dir: "bc-little-black-book", file: "little-black-book.js", label: "Little Black Book" },
 		qa: { dir: "bc-quick-actions", file: "quick-actions.js", label: "Quick Actions" },
 		vibe: { dir: "bc-vibe-link", file: "vibe-link.js", label: "Vibe Link" },
+		ag: { dir: "bc-afterglow", file: "afterglow.js", label: "Afterglow" },
 	};
-	const DEV_ORDER = ["dock", "book", "qa", "vibe"]; // the dock first, so the add-ons land in the new one
+	const DEV_ORDER = ["dock", "book", "qa", "vibe", "ag"]; // the dock first, so the add-ons land in the new one
 	// Hidden unless a Tampermonkey loader turns them on, so a published copy never shows or runs any of it:
 	//   window.BCDockDev = { reload: true, watch: false };
 	// reload: the ⚙ Developer section and /reload. watch: also allows "reload whenever a file is saved".
@@ -716,7 +717,7 @@
 			devSay(`Add-on folder: "${h.name}". /reload reloads whatever you change.`);
 		} catch (e) {
 			if (e?.name !== "AbortError")
-				devSay(e?.name === "NotFoundError" ? "Pick the folder that holds bc-dock, bc-little-black-book, bc-quick-actions and bc-vibe-link (the bc folder)." : `Couldn't use that folder: ${e?.message || e}`);
+				devSay(e?.name === "NotFoundError" ? "Pick the folder that holds bc-dock, bc-little-black-book, bc-quick-actions, bc-vibe-link and bc-afterglow (the bc folder)." : `Couldn't use that folder: ${e?.message || e}`);
 		}
 		if (active === CFG) renderCfg();
 	}
@@ -809,9 +810,9 @@
 		if (arg === "unwatch" || arg === "stop") return setWatch(false), devSay("Stopped reloading on save.");
 		if (arg === "all") return devReload(DEV_ORDER);
 		if (arg === "folder") return pickFolder();
-		const keys = arg.split(/[\s,]+/).map((w) => ({ lbb: "book", quick: "qa", vl: "vibe", link: "vibe" })[w] || w);
+		const keys = arg.split(/[\s,]+/).map((w) => ({ lbb: "book", quick: "qa", vl: "vibe", link: "vibe", afterglow: "ag" })[w] || w);
 		const bad = keys.filter((k) => !ADDONS[k]);
-		if (bad.length) return devSay(`Unknown: ${bad.join(", ")}. /reload [all|book|qa|vibe|dock|watch|unwatch|folder]`);
+		if (bad.length) return devSay(`Unknown: ${bad.join(", ")}. /reload [all|book|qa|vibe|ag|dock|watch|unwatch|folder]`);
 		return devReload(keys);
 	}
 

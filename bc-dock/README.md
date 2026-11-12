@@ -2,7 +2,7 @@
 
 *Part of [BC Toolkit](../README.md). Not installed on its own: every add-on's loader brings it along.*
 
-A small shared frame that Little Black Book, Quick Actions and Vibe Link put their panels in, so they
+A small shared frame that Little Black Book, Quick Actions, Vibe Link and Afterglow put their panels in, so they
 stop floating separately and overlapping the game. It's only the frame: each add-on keeps its own
 settings, storage and logic.
 
@@ -26,7 +26,7 @@ settings, storage and logic.
 ```
 
 - **📓** opens Little Black Book's own big window, as its bubble used to. Its badge is the unread count.
-- **⚡ / 〰** slide out Quick Actions / Vibe Link. The panel header shows the title, a one-line
+- **⚡ / 〰 / ✨** slide out Quick Actions / Vibe Link / Afterglow. The panel header shows the title, a one-line
   summary, the add-on's own buttons (Vibe Link's 🛑) and ✕.
 - Tabs show a **badge** and a **status dot** (Vibe Link: green = toy connected, yellow = waiting,
   red = stopped or can't reach Intiface).
@@ -46,7 +46,7 @@ settings, storage and logic.
   logged out). A panel hidden that way comes back open when its tab returns.
 - Position, side, opacity, theme, widths and the open panel are kept in this browser's `localStorage`
   (`BCDock.v2`).
-- Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link.
+- Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link, Afterglow.
 
 ## Reloading the add-ons without reloading the game
 
@@ -65,7 +65,7 @@ window.BCDockDev = { reload: true, watch: false };
 Nothing else to install: Chrome lets the page read a folder you pick.
 
 1. **Choose folder** and pick the `bc` folder (the folder that holds `bc-dock`, `bc-little-black-book`,
-   `bc-quick-actions`, `bc-vibe-link`). Chrome may ask to let the site view the folder: allow it, and
+   `bc-quick-actions`, `bc-vibe-link`, `bc-afterglow`). Chrome may ask to let the site view the folder: allow it, and
    choose *Allow on every visit* if offered, so it doesn't ask again after a game reload.
 2. Then, in chat:
 

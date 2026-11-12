@@ -8,6 +8,7 @@ on the edge of the screen. Install only the ones you want: each has its own Tamp
 | 📓 [Little Black Book](bc-little-black-book/README.md) | Profiles of people you meet (even when they're offline), beep and whisper chats, room logs, saved outfits, online alerts. `/book` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js) |
 | ⚡ [Quick Actions](bc-quick-actions/README.md) | Favourite and recent activities one click away, on yourself or anyone in the room | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quick-actions/quick-actions.user.js) |
 | 〰 [Vibe Link](bc-vibe-link/README.md) | Real toys follow the vibrators your character wears, through Intiface Central, with smooth ramps, patterns and remote control | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js) |
+| ✨ [Afterglow](bc-afterglow/README.md) | Counts your orgasms, ruined orgasms, resists and denials, the time since your last orgasm, and your records. `/afterglow` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-afterglow/afterglow.user.js) |
 
 The [dock](bc-dock/README.md) comes along with whichever add-on you install: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab).
@@ -50,7 +51,7 @@ loader that `@require`s the files from disk instead of from a release:
 
 ### Releasing
 
-Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`.
+Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`, `ag-vX.Y.Z`.
 
 1. Bump the version in the add-on's `MOD_INFO` and in its `.user.js` (`@version` and the tag in
    both `@require` lines).
