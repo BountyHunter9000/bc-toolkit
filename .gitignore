@@ -1,0 +1,15 @@
+# editor / OS clutter
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log
+node_modules/
+.claude/
+
+# local loaders that read the files from disk (paths are per computer)
+dev/
+
+# local test pages (fake game + fake Intiface), only used for development
+test/
