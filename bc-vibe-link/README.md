@@ -226,6 +226,41 @@ the game levels (100% from them = your max). It's never just cut off at the max.
 sent only to the person concerned, plus a "hello" to the room when you join so others know you run
 Vibe Link and whether you accept requests. Messages are data only and checked on arrival.
 
+## Saved patterns, programs and history
+
+Every pattern picker (controlling someone, or **Play on my toys**) also has:
+
+- **💾** next to ▶ Play saves the pattern under a name. Saved patterns appear in a list at the top of
+  the picker: **▶** plays one, **✎** loads it back into the editor to change it.
+- **+ Add to program** adds the pattern as the next step of a **program**: up to 12 steps, each
+  for its own *how long* (1 min if it runs until stopped). The program shows its steps (reorder
+  with ↑, remove with ✕), a preview of the whole run, and **Loop** to start over until stopped.
+  **▶ Play** sends the whole program at once and the wearer's Vibe Link plays it, as with patterns.
+- **Remote → My patterns** lists everything you saved: play it on your own toys (▶), copy it as a
+  code (📋), rename (✎) or delete it (✕). Saved patterns go with your account, like presets.
+
+**Sharing and backups** (Remote → My patterns):
+
+- **📋** copies a **pattern code** (`VL1:…`, compressed like the game's outfit codes) for a pattern,
+  program or recording, from My patterns or the History. Anyone with Vibe Link pastes it into
+  **Import** to save it. A code is checked like a pattern arriving from another player: data only,
+  same limits.
+- **⭳ Export all** downloads every saved pattern as `vibe-link-patterns.json`, a backup or a way to
+  move them to another account. **⭱ Import file** adds the patterns from such a file (or from a text
+  file of codes, one per line). If names clash, you choose: replace yours, or keep both (the imported
+  ones get "(2)").
+
+**Remote → History** keeps what happened during remote control, both ways (← done to you, → done
+by you): who took control and when it ended, the patterns and programs played, levels and modes set,
+and live slider sessions, which are kept as **recordings** of the curve exactly as it was drawn
+(up to 10 minutes). Any pattern, program or recording there can be played again on your own toys
+(▶) or saved (💾), and a saved recording can be played on someone else too. The history stays in
+this browser only (the newest 300 entries, the newest 40 with their curves); **Keep a history**
+turns it off and **Clear** empties it.
+
+Programs and recordings need Vibe Link 0.11.0 or newer on the other side; for someone on an older
+version they're greyed out. A recording sent to someone else is thinned to 240 points on the way.
+
 ## Rules
 
 Bondage Club's add-on rules ask scripts not to affect other players without their consent:
@@ -243,9 +278,10 @@ Bondage Club's add-on rules ask scripts not to affect other players without thei
 
 ## Storage
 
-Settings (levels, ramps, cap, hotkey, Intiface address, presets, and toy links if remembered) are saved in the account's
-`ExtensionSettings.VibeLink`. The stopped state is kept in this browser's `localStorage`; the dock
-keeps its own position and which panels are open.
+Settings (levels, ramps, cap, hotkey, Intiface address, presets, saved patterns, and toy links if remembered) are
+saved in the account's `ExtensionSettings.VibeLink`. The stopped state and the remote control history are kept in this
+browser's `localStorage` (`VibeLink.history.<member number>`); the dock keeps its own position and which panels are
+open.
 
 ## Console
 

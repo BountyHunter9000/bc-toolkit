@@ -8,6 +8,17 @@ with the add-on can run on you. Everyone else keeps seeing and using the normal 
 Standalone, like Little Black Book and Quick Actions: own folder, own Tampermonkey loader, no
 dependency on either.
 
+## Status (0.11.0)
+
+**Built:** phase 1 in full; game modes played as patterns (phase 2's mode rendering, done as one
+pattern per mode); phase 3 in full (consent, live slider with replay smoothing, levels, modes,
+patterns, programs, saved patterns, the worn vibrator following along, heartbeat, Play on my
+toys); from phase 4, the history of who ran what (with recordings of live sessions) and
+multi-motor toys as separate toys.
+
+**Not built:** phase 2's texture, arousal link and reactions; phase 4's cross-room control by beep,
+a drawn pattern editor, sharing patterns between players, and non-vibrating motors.
+
 ---
 
 ## How the game's vibrators work (R133, `VibratorMode.js`)
@@ -186,27 +197,3 @@ exactly as the game makes them.
 - A session log of who ran what on you, stored locally.
 
 ---
-
-## Files (planned)
-
-```
-bc\bc-vibe-link\
-  vibe-link.user.js   Tampermonkey loader (@require file:///…/vibe-link.js)
-  vibe-link.js        the add-on
-  README.md
-  PLAN.md             this file
-```
-
-## Open questions
-
-1. Name: "Vibe Link" OK?
-2. Panel: its own floating panel (like Quick Actions), or a tab added to WCE/FUSAM settings?
-3. Remote control: should the game's in-game remote also end a running program (planned), or
-   should a program keep priority until it finishes?
-4. Default permission once remote control is turned on: friends + ask first?
-
-## To check while building
-
-- That Intiface Central still accepts the older (v3) protocol messages, or switch to v4.
-- Lovense command rate limits through Intiface (plan: ≤10 per second).
-- How hidden messages interact with BCX's message filtering.

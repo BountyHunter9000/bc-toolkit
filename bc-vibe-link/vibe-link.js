@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.10.2" };
+	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.11.0" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -59,6 +59,8 @@
 		stopWhenHidden: false,
 		rememberLinks: false, // off: every session starts with toys following nothing
 		presets: [], // { name, links, levels, rampUp, rampDown, curve, cap }
+		saved: [], // { name, p }: your saved patterns, programs and recordings
+		keepHistory: true, // remote control history, kept in this browser only
 		// remote control by other Vibe Link users (off until you turn it on)
 		remote: {
 			on: false,
@@ -75,6 +77,8 @@
 	};
 	const PRESET_FIELDS = ["levels", "rampUp", "rampDown", "curve", "cap"];
 	const MAX_PRESETS = 20;
+	const MAX_SAVED = 40;
+	const SAVED_MAX_CHARS = 60_000; // saved patterns go with your account settings, so they're kept small
 	let settings = structuredClone(DEFAULTS);
 	let local = { paused: false }; // older versions also kept pos/open here; the dock keeps those now
 
@@ -136,6 +140,12 @@
 			announce: ["me", "room"].includes(r.announce) ? r.announce : "off",
 			bufferMs: num(r.bufferMs, 50, 1000, 250),
 		};
+		out.keepHistory = out.keepHistory !== false;
+		out.saved = (Array.isArray(s?.saved) ? s.saved : [])
+			.filter((x) => x && typeof x.name === "string" && x.name.trim())
+			.slice(0, MAX_SAVED)
+			.map((x) => ({ name: x.name.trim().slice(0, 40), p: cleanPattern(x.p) }))
+			.filter((x) => x.p);
 		out.presets = (Array.isArray(out.presets) ? out.presets : [])
 			.filter((p) => p && typeof p.name === "string" && p.name.trim())
 			.slice(0, MAX_PRESETS)
@@ -844,10 +854,72 @@
 	};
 	const PATTERN_TYPES = Object.keys(PATTERNS);
 
+	// Two more kinds travel the same way (0.11.0 on both sides):
+	// - a program: { type: "prog", steps: [pattern with a duration, ...], loop }, played one step after another
+	// - a recording: { type: "rec", pts: [[ms, 0-100], ...] }, a live slider session replayed as it was drawn
+	const PROG_MAX_STEPS = 12;
+	const REC_MAX_PTS = 600; // a stored recording keeps at most this many points (resampled evenly)
+	const REC_NET_PTS = 240; // ... and sends at most this many to someone else
+	const REC_MAX_MS = 10 * 60_000;
+	const PROG_VER = "0.11.0"; // the first version that plays programs and recordings
+	const verAtLeast = (v, want) => {
+		const a = String(v || "").split(".").map(Number);
+		const b = want.split(".").map(Number);
+		for (let i = 0; i < 3; i++) if ((a[i] || 0) !== b[i]) return (a[i] || 0) > b[i];
+		return true;
+	};
+	// Evenly spaced points along a recording, at most `max`
+	function resample(pts, max) {
+		if (pts.length <= max) return pts;
+		const dur = pts[pts.length - 1][0];
+		const out = [];
+		let j = 0;
+		for (let i = 0; i < max; i++) {
+			const t = Math.round((dur * i) / (max - 1));
+			while (j < pts.length - 2 && pts[j + 1][0] < t) j++;
+			const [t0, v0] = pts[j];
+			const [t1, v1] = pts[j + 1];
+			out.push([t, Math.round(v0 + ((v1 - v0) * (t - t0)) / Math.max(1, t1 - t0))]);
+		}
+		return out;
+	}
+
 	// Cleans a pattern from the network (or the UI); null if unusable
-	function cleanPattern(x) {
-		if (!x || typeof x !== "object" || !PATTERNS[x.type]) return null;
+	function cleanPattern(x, inner = false) {
+		if (!x || typeof x !== "object") return null;
 		const n = (v, lo, hi, d) => (Number.isFinite(+v) ? Math.min(hi, Math.max(lo, Math.round(+v))) : d);
+		if (x.type === "prog" && !inner) {
+			const steps = (Array.isArray(x.steps) ? x.steps : [])
+				.slice(0, PROG_MAX_STEPS)
+				.map((s) => cleanPattern({ ...s, dur: n(s?.dur, 1000, 3_600_000, 60_000) }, true))
+				.filter((s) => s && s.type !== "rec");
+			if (!steps.length) return null;
+			const total = steps.reduce((a, s) => a + s.dur, 0);
+			const loop = !!x.loop;
+			return { type: "prog", steps, loop, min: Math.min(...steps.map((s) => s.min)), max: Math.max(...steps.map((s) => s.max)), period: total, dur: loop ? n(x.dur, 0, 3_600_000, 0) : total, seed: 1 };
+		}
+		if (x.type === "rec") {
+			const pts = [];
+			for (const q of Array.isArray(x.pts) ? x.pts.slice(0, 20_000) : []) {
+				if (!Array.isArray(q)) continue;
+				const t = Math.round(Number(q[0]));
+				const v = Math.round(Number(q[1]));
+				if (!Number.isFinite(t) || !Number.isFinite(v) || t < 0 || t > REC_MAX_MS) continue;
+				if (pts.length && t <= pts[pts.length - 1][0]) continue; // in time order only
+				pts.push([t, Math.min(100, Math.max(0, v))]);
+			}
+			if (pts.length < 2) return null;
+			const t0 = pts[0][0];
+			const even = resample(
+				pts.map(([t, v]) => [t - t0, v]),
+				REC_MAX_PTS
+			);
+			const dur = even[even.length - 1][0];
+			if (dur < 500) return null;
+			const vals = even.map((p) => p[1]);
+			return { type: "rec", pts: even, min: Math.min(...vals), max: Math.max(...vals), period: dur, dur, seed: 1 };
+		}
+		if (!PATTERNS[x.type]) return null;
 		let min = n(x.min, 0, 100, 0);
 		let max = n(x.max, 0, 100, 100);
 		if (min > max) [min, max] = [max, min];
@@ -865,12 +937,219 @@
 
 	// 0..100 at t ms into the pattern
 	function patternAt(pat, t, rnd = seeded(pat.seed)) {
+		if (pat.type === "prog") {
+			// a looping program starts over; one that doesn't stays on its last moment until its time runs out
+			let x = pat.loop ? t % pat.period : Math.min(t, pat.period - 1);
+			for (const s of pat.steps) {
+				if (x < s.dur) return patternAt(s, x);
+				x -= s.dur;
+			}
+			const last = pat.steps[pat.steps.length - 1];
+			return patternAt(last, last.dur - 1);
+		}
+		if (pat.type === "rec") {
+			const p = pat.pts;
+			const x = Math.min(Math.max(0, t), pat.dur);
+			// binary search for the points either side of x
+			let lo = 0;
+			let hi = p.length - 1;
+			while (hi - lo > 1) {
+				const mid = (lo + hi) >> 1;
+				if (p[mid][0] <= x) lo = mid;
+				else hi = mid;
+			}
+			const [t0, v0] = p[lo];
+			const [t1, v1] = p[hi];
+			return x <= t0 ? v0 : x >= t1 ? v1 : v0 + ((v1 - v0) * (x - t0)) / (t1 - t0);
+		}
 		const cyc = Math.floor(t / pat.period);
 		const f = (t % pat.period) / pat.period;
 		const v = Math.min(1, Math.max(0, PATTERNS[pat.type].fn(f, cyc, rnd)));
 		return pat.min + (pat.max - pat.min) * v;
 	}
-	const patternText = (pat) => `${PATTERNS[pat.type].label} ${pat.min}-${pat.max}% · ${(pat.period / 1000).toFixed(pat.period < 1000 ? 1 : 0)} s`;
+	const patLabel = (pat) => (pat.type === "prog" ? "Program" : pat.type === "rec" ? "Recording" : PATTERNS[pat.type]?.label || "Pattern");
+	const stepText = (pat) => `${PATTERNS[pat.type].label} ${pat.min}-${pat.max}% · ${(pat.period / 1000).toFixed(pat.period < 1000 ? 1 : 0)} s`;
+	const patternText = (pat) =>
+		pat.type === "prog"
+			? `Program · ${pat.steps.length} step${pat.steps.length > 1 ? "s" : ""} · ${fmtDur(pat.period)}${pat.loop ? " · loops" : ""}`
+			: pat.type === "rec"
+				? `Recording · ${fmtDur(pat.dur)} · ${pat.min}-${pat.max}%`
+				: stepText(pat);
+	// What goes over the network: a recording sent to someone else is thinned to REC_NET_PTS points
+	const netPattern = (pat) => (pat.type === "rec" && pat.pts.length > REC_NET_PTS ? { ...pat, pts: resample(pat.pts, REC_NET_PTS) } : pat);
+	// Status messages go out every second, so programs and recordings are named there rather than sent whole
+	const isBig = (pat) => pat.type === "prog" || pat.type === "rec";
+	const peerPlaysBig = (m) => isSelf(m) || verAtLeast(peers.get(m)?.ver, PROG_VER);
+
+	// ---------- saved patterns ----------
+	// Patterns, programs and recordings you keep, by name. Saved with your account settings (like presets).
+	const findSaved = (name) => settings.saved.find((x) => x.name.toLowerCase() === String(name || "").trim().toLowerCase());
+	function savePatternAs(name, pat) {
+		name = String(name || "").trim().slice(0, 40);
+		const p = cleanPattern(pat);
+		if (!name || !p) return "Nothing to save";
+		const list = settings.saved.filter((x) => x.name.toLowerCase() !== name.toLowerCase());
+		const existed = list.length !== settings.saved.length;
+		if (list.length >= MAX_SAVED) return `You can keep up to ${MAX_SAVED}; delete one first`;
+		const next = [...list, { name, p: { ...p, seed: 1 } }];
+		if (JSON.stringify(next).length > SAVED_MAX_CHARS) return "That's too much to keep with your account: delete a long recording first";
+		settings.saved = next.sort((a, b) => a.name.localeCompare(b.name));
+		saveSettings();
+		ui.renderSoon();
+		return existed ? `Updated "${name}"` : `Saved "${name}"`;
+	}
+	function deleteSaved(name) {
+		settings.saved = settings.saved.filter((x) => x.name !== name);
+		saveSettings();
+		ui.renderSoon();
+	}
+	// Pattern codes: "VL1:" + the pattern and its name, compressed like the game's outfit codes, for sharing as text.
+	// Reading one goes through the same checks as a pattern arriving from another player (data only, same limits).
+	const CODE_PREFIX = "VL1:";
+	function patternCode(name, pat) {
+		const json = JSON.stringify({ n: String(name || "").slice(0, 40), p: pat });
+		const body = typeof LZString?.compressToBase64 === "function" ? LZString.compressToBase64(json) : btoa(unescape(encodeURIComponent(json)));
+		return CODE_PREFIX + body;
+	}
+	function readPatternCode(text) {
+		const t = String(text || "").replace(/\s+/g, "");
+		const at = t.indexOf(CODE_PREFIX);
+		if (at < 0) return null;
+		const body = t.slice(at + CODE_PREFIX.length);
+		let json = null;
+		try {
+			json = typeof LZString?.decompressFromBase64 === "function" ? LZString.decompressFromBase64(body) : null;
+		} catch {}
+		if (!json || json[0] !== "{") {
+			try {
+				json = decodeURIComponent(escape(atob(body)));
+			} catch {
+				return null;
+			}
+		}
+		try {
+			const o = JSON.parse(json);
+			const pat = cleanPattern(o?.p);
+			return pat ? { name: String(o.n || "").trim().slice(0, 40) || patLabel(pat), p: pat } : null;
+		} catch {
+			return null;
+		}
+	}
+	// "Name", or "Name (2)", "Name (3)", ... if that's taken
+	function freeName(name) {
+		if (!findSaved(name)) return name;
+		const base = name.replace(/ \(\d+\)$/, "").slice(0, 34);
+		for (let i = 2; ; i++) if (!findSaved(`${base} (${i})`)) return `${base} (${i})`;
+	}
+	// Adds several { name, p }; replace: same names are overwritten, otherwise they're kept as "Name (2)"
+	function importSaved(list, replace) {
+		let added = 0;
+		let failed = "";
+		for (const x of list) {
+			const name = replace ? x.name : freeName(x.name);
+			const r = savePatternAs(name, x.p);
+			if (/^(Saved|Updated)/.test(r)) added++;
+			else failed = r;
+		}
+		return `${added} of ${list.length} imported${failed ? `. ${failed}` : ""}`;
+	}
+	// The file Export all writes, and Import file reads (also accepts a text file of pattern codes, one per line)
+	const FILE_FORMAT = "VibeLinkPatterns";
+	function exportFileText() {
+		return JSON.stringify({ format: FILE_FORMAT, v: 1, exported: new Date().toISOString(), saved: settings.saved }, null, 1);
+	}
+	function readImportFile(text) {
+		try {
+			const o = JSON.parse(text);
+			const arr = Array.isArray(o) ? o : o?.format === FILE_FORMAT && Array.isArray(o.saved) ? o.saved : null;
+			if (arr)
+				return arr
+					.slice(0, 200)
+					.map((x) => ({ name: String(x?.name || "").trim().slice(0, 40), p: cleanPattern(x?.p) }))
+					.filter((x) => x.p)
+					.map((x) => ({ ...x, name: x.name || patLabel(x.p) }));
+		} catch {}
+		return String(text || "")
+			.split(/\r?\n/)
+			.slice(0, 200)
+			.map(readPatternCode)
+			.filter(Boolean);
+	}
+
+	// Asks for a name (suggesting one) and saves; returns nothing, says how it went
+	function promptSave(pat, suggest) {
+		const name = window.prompt("Save as:", suggest || patLabel(pat));
+		if (name == null) return;
+		ui.toast(savePatternAs(name, pat));
+	}
+
+	// ---------- history ----------
+	// What happened during remote control, both ways: who took control, what they played (kept whole, so it can be
+	// played again or saved), live slider sessions as recordings, levels, modes, and when it ended. Kept in this
+	// browser only (localStorage, per account), newest last, HIST_MAX entries; only the newest HIST_KEEP_PATS keep
+	// their recordings.
+	const HIST_MAX = 300;
+	const HIST_KEEP_PATS = 40;
+	let histCache = null;
+	let histTimer = null;
+	const histKey = () => `VibeLink.history.${Player?.MemberNumber || 0}`;
+	function history() {
+		if (histCache?.key === histKey()) return histCache.list;
+		let list = [];
+		try {
+			const raw = JSON.parse(localStorage.getItem(histKey()) || "[]");
+			if (Array.isArray(raw))
+				list = raw
+					.filter((e) => e && Number.isFinite(e.at) && typeof e.text === "string")
+					.slice(-HIST_MAX)
+					.map((e) => ({ at: e.at, dir: e.dir === "out" ? "out" : "in", who: Number(e.who) || 0, name: String(e.name || "").slice(0, 40), ev: String(e.ev || "").slice(0, 10), text: e.text.slice(0, 200), ...(e.p && cleanPattern(e.p) ? { p: cleanPattern(e.p) } : {}) }));
+		} catch {}
+		histCache = { key: histKey(), list };
+		return list;
+	}
+	function saveHistory() {
+		clearTimeout(histTimer);
+		histTimer = setTimeout(() => {
+			try {
+				localStorage.setItem(histKey(), JSON.stringify(history()));
+			} catch (e) {
+				console.warn(TAG, "history not saved", e);
+			}
+		}, 500);
+	}
+	function logEvent(e) {
+		if (!settings.keepHistory || !loggedIn()) return;
+		const list = history();
+		list.push({ at: Date.now(), dir: "in", ...e, name: e.name || (isSelf(e.who) ? "You" : nameOf(e.who)) });
+		if (list.length > HIST_MAX) list.splice(0, list.length - HIST_MAX);
+		// Older entries drop their recordings and programs (the text stays)
+		let kept = 0;
+		for (let i = list.length - 1; i >= 0; i--) if (list[i].p && ++kept > HIST_KEEP_PATS) delete list[i].p;
+		saveHistory();
+		ui.renderSoon();
+	}
+	function clearHistory() {
+		history().length = 0;
+		saveHistory();
+		ui.renderSoon();
+	}
+	// Live slider sessions are recorded as they play (the wearer's replay timeline, or the controller's own slider)
+	function recPush(holder, t, v) {
+		const r = (holder.rec = holder.rec || { t0: t, pts: [] });
+		const x = t - r.t0;
+		if (x > REC_MAX_MS || r.pts.length >= 20_000) return;
+		const last = r.pts[r.pts.length - 1];
+		if (last && x <= last[0]) return;
+		r.pts.push([x, Math.round(v)]);
+	}
+	// Ends a recording; logged if it lasted at least 2 seconds
+	function recFinish(holder, entry) {
+		const r = holder?.rec;
+		if (!r) return;
+		holder.rec = null;
+		const p = r.pts.length >= 2 && r.pts[r.pts.length - 1][0] >= 2000 ? cleanPattern({ type: "rec", pts: r.pts }) : null;
+		if (p) logEvent({ ev: "live", p, ...entry, text: `${entry.text} (${fmtDur(p.dur)})` });
+	}
 
 	// ---------- remote control: who may control your toy (phase 3, step 1) ----------
 	// Other players who also run Vibe Link can ask for control; you decide. This step only handles access:
@@ -926,6 +1205,7 @@
 		if (!remoteCtl) {
 			remoteCtl = { by: from, at: now, lanes: new Map(), gameSig: gameSig(), prev: {}, mirror: {} };
 			ui.toast(isSelf(from) ? "You're playing your toys." : `${nameOf(from)} is controlling your toy.`);
+			if (!isSelf(from)) logEvent({ who: from, ev: "start", text: `${nameOf(from)} took control` });
 			announce(isSelf(from) ? `${myName()} takes over their own toy.` : `${nameOf(from)} takes control of ${myName()}'s toy.`);
 			ui.renderSoon();
 		}
@@ -935,9 +1215,17 @@
 	}
 	// "*" replaces every per-toy lane; a toy's lane leaves the others alone
 	function setLane(rc, key, lane) {
+		if (key === ALL) for (const [k, l] of rc.lanes) laneDone(rc, k, l);
+		else laneDone(rc, key, rc.lanes.get(key));
 		if (key === ALL) rc.lanes.clear();
 		rc.lanes.set(key, lane);
 		ui.renderSoon();
+	}
+	// A lane is replaced or ends: its live recording (if any) goes into the history
+	function laneDone(rc, key, lane) {
+		if (!lane?.rec) return;
+		const on = key && key !== ALL ? ` on ${toyName(key)}` : "";
+		recFinish(lane, { who: rc.by, text: isSelf(rc.by) ? `You played live${on}` : `${nameOf(rc.by)} controlled you live${on}` });
 	}
 	const toyName = (key) => (key === ALL ? "all toys" : toys.get?.(key)?.display || [...toys.values()].find((t) => t.key === key)?.display || key);
 	const LIVE_GAP_MS = 50; // a controller sends each change, at most 20 a second (the last value always goes out)
@@ -1006,6 +1294,7 @@
 		for (const [dt, v] of pts) {
 			const at = Math.max(st + dt + rc.offset + delay, lastAt + 1);
 			rc.buf.push({ at, v });
+			recPush(rc, at, v * 100);
 		}
 		if (rc.buf.length > 600) rc.buf.splice(0, rc.buf.length - 600);
 	}
@@ -1202,6 +1491,8 @@
 		const by = remoteCtl.by;
 		const rc = remoteCtl;
 		remoteCtl = null;
+		for (const [k, l] of rc.lanes) laneDone(rc, k, l);
+		if (!isSelf(by)) logEvent({ who: by, ev: "end", text: `${nameOf(by)}'s control ended${reason ? `: ${reason}` : ""}` });
 		if (restore) rcRestoreGame(rc);
 		announce(`${myName()}'s toy follows the game again.`);
 		if (tell && grants.has(by)) rcSend(by, { t: "note", text: reason });
@@ -1325,6 +1616,7 @@
 				break;
 			case "revoke":
 				if (controlling.has(from) && controlling.get(from).state !== "revoked") {
+					outDone(from, controlling.get(from));
 					controlling.set(from, { state: "revoked", reason: reason(msg.reason), at: now });
 					ui.toast(`${nameOf(from)} took control back${msg.reason ? `: ${reason(msg.reason)}` : ""}.`);
 				}
@@ -1356,6 +1648,7 @@
 				const key = msg.toy == null ? ALL : laneKey(msg.toy);
 				if (key === ALL) return endRemote("", false);
 				// Free just this toy (marked, so "all toys" doesn't pick it up again); when nothing is driven any more, it's over
+				laneDone(remoteCtl, key, remoteCtl.lanes.get(key));
 				remoteCtl.lanes.set(key, { free: true });
 				if (!remoteToys().some((t) => laneFor(t))) endRemote("", false);
 				ui.renderSoon();
@@ -1370,7 +1663,8 @@
 				const session = remoteSession(from, now);
 				const key = laneKey(msg.toy);
 				setLane(session, key, { pat, rnd: seeded(pat.seed), t0: now, until: pat.dur ? now + pat.dur : 0 });
-				announce(`${ctrlName(from)} starts ${PATTERNS[pat.type].label} (${pat.min}-${pat.max}%${pat.dur ? `, ${fmtDur(pat.dur)}` : ""}) on ${isSelf(from) ? "their" : `${myName()}'s`} ${key === ALL ? "toy" : toyName(key)}.`);
+				if (!isSelf(from)) logEvent({ who: from, ev: "pat", p: pat, text: `${nameOf(from)} played ${patternText(pat)}${pat.dur && !isBig(pat) ? ` for ${fmtDur(pat.dur)}` : ""}${key === ALL ? "" : ` on ${toyName(key)}`}` });
+				announce(`${ctrlName(from)} starts ${patLabel(pat)} (${pat.min}-${pat.max}%${pat.dur ? `, ${fmtDur(pat.dur)}` : ""}) on ${isSelf(from) ? "their" : `${myName()}'s`} ${key === ALL ? "toy" : toyName(key)}.`);
 				return;
 			}
 			// Wearer side: hold a game level (your own % for it, the worn vibrator set to it) or a game mode
@@ -1384,6 +1678,7 @@
 					const n = Math.round(Number(msg.n));
 					if (!(n >= 0 && n <= 4)) return;
 					setLane(session(), key, { lvl: n, at: now });
+					if (!isSelf(from)) logEvent({ who: from, ev: "lvl", text: `${nameOf(from)} set ${LEVEL_NAMES[n]}${key === ALL ? "" : ` on ${toyName(key)}`}` });
 					announce(`${ctrlName(from)} sets ${where} to ${LEVEL_NAMES[n]}.`);
 					return;
 				}
@@ -1392,6 +1687,7 @@
 				const mp = modePattern(mode);
 				const pat = { ...(mp || cleanPattern({ ...MODE_DEFAULTS[mode], dur: 0, seed: 1 })), seed: (Math.random() * 2 ** 31) | 0 };
 				setLane(session(), key, { mode, pat, rnd: seeded(pat.seed), t0: now, until: 0, game: !mp });
+				if (!isSelf(from)) logEvent({ who: from, ev: "mode", text: `${nameOf(from)} set ${mode} mode${key === ALL ? "" : ` on ${toyName(key)}`}` });
 				announce(`${ctrlName(from)} sets ${where} to ${mode} mode.`);
 				return;
 			}
@@ -1400,11 +1696,13 @@
 				if (c?.state !== "granted") return;
 				const toyList = Array.isArray(msg.toys) ? msg.toys.slice(0, 8) : [];
 				const pat = msg.pat ? cleanPattern(msg.pat) : null;
+				const pl = (x) => (typeof x === "string" ? x.slice(0, 60) : null);
 				c.status = {
 					at: now,
 					active: !!msg.active,
 					pat,
-					left: pat && Number(msg.left) > 0 ? Math.min(3_600_000, Number(msg.left)) : 0,
+					pl: pl(msg.pl),
+					left: (pat || msg.pl) && Number(msg.left) > 0 ? Math.min(3_600_000, Number(msg.left)) : 0,
 					toys: toyList.map((t) => {
 						const tp = t?.pat ? cleanPattern(t.pat) : null;
 						return {
@@ -1417,7 +1715,8 @@
 							md: t?.m === "mode" ? VIBE_MODES.find((x) => x === t.md) || null : null,
 							el: tp && Number(t.el) > 0 ? Math.min(86_400_000, Number(t.el)) : 0,
 							pat: tp,
-							left: tp && Number(t.left) > 0 ? Math.min(3_600_000, Number(t.left)) : 0,
+							pl: pl(t?.pl),
+							left: (tp || t?.pl) && Number(t.left) > 0 ? Math.min(3_600_000, Number(t.left)) : 0,
 						};
 					}),
 				};
@@ -1595,12 +1894,21 @@
 	}
 	// Every slider change is recorded with its time; batches go out every PTS_EVERY ms while it moves. The wearer replays
 	// them on this timeline, so the curve arrives exactly as drawn even when messages bunch up on the way.
+	// Your own live slider on someone else goes into your history as a recording when it stops
+	function outDone(member, c) {
+		if (c?.rec) recFinish(c, { dir: "out", who: member, text: `You controlled ${nameOf(member)} live` });
+	}
 	function sendLive(member, pct) {
 		const c = controlling.get(member);
 		if (c?.state !== "granted") return;
 		const v = Math.min(100, Math.max(0, Math.round(pct)));
 		if (v === c.val && c.pts) return; // only changes are recorded
 		const now = Date.now();
+		if (!isSelf(member)) {
+			const last = c.rec?.pts[c.rec.pts.length - 1];
+			if (last && now - c.rec.t0 - last[0] > 60 && c.val != null) recPush(c, now - 20, c.val);
+			recPush(c, now, v);
+		}
 		const key = c.sel || ALL;
 		// Points for another toy go out first, so a batch never mixes toys
 		if (c.ptsKey != null && c.ptsKey !== key && c.pts?.length) {
@@ -1640,6 +1948,9 @@
 		const c = controlling.get(member);
 		const clean = cleanPattern(pat);
 		if (c?.state !== "granted" || !clean) return;
+		if (isBig(clean) && !peerPlaysBig(member)) return ui.toast(`${nameOf(member)} needs Vibe Link ${PROG_VER} or newer for programs and recordings.`);
+		outDone(member, c);
+		if (!isSelf(member)) logEvent({ dir: "out", who: member, ev: "pat", p: clean, text: `You played ${patternText(clean)}${clean.dur && !isBig(clean) ? ` for ${fmtDur(clean.dur)}` : ""} on ${nameOf(member)}` });
 		clearTimeout(c.liveTimer);
 		c.liveTimer = null;
 		c.pts = [];
@@ -1650,13 +1961,14 @@
 		if (key === ALL) (c.playingBy.clear(), c.liveBy.clear());
 		c.liveBy.delete(key);
 		c.playingBy.set(key, { pat: clean, rnd: seeded(clean.seed), t0: Date.now(), until: clean.dur ? Date.now() + clean.dur : 0 });
-		rcSend(member, { t: "pat", p: clean, ...(key !== ALL ? { toy: key } : {}) });
+		rcSend(member, { t: "pat", p: isSelf(member) ? clean : netPattern(clean), ...(key !== ALL ? { toy: key } : {}) });
 		ui.renderSoon();
 	}
 
 	// Off ... Max and the game modes: the wearer holds it like a game setting (their own % per level, their own pattern
 	// per mode) and sets their worn vibrator to it
-	function takeOver(c) {
+	function rcTakeOver(c, member) {
+		outDone(member, c);
 		clearTimeout(c.liveTimer);
 		c.liveTimer = null;
 		c.pts = [];
@@ -1672,7 +1984,8 @@
 	function sendLevel(member, n) {
 		const c = controlling.get(member);
 		if (c?.state !== "granted") return;
-		const key = takeOver(c);
+		const key = rcTakeOver(c, member);
+		if (!isSelf(member)) logEvent({ dir: "out", who: member, ev: "lvl", text: `You set ${nameOf(member)} to ${LEVEL_NAMES[n]}` });
 		c.val = [0, 25, 50, 75, 100][n];
 		rcSend(member, { t: "lvl", n, ...(key !== ALL ? { toy: key } : {}) });
 		ui.renderSoon();
@@ -1680,7 +1993,8 @@
 	function sendMode(member, mode) {
 		const c = controlling.get(member);
 		if (c?.state !== "granted") return;
-		const key = takeOver(c);
+		const key = rcTakeOver(c, member);
+		if (!isSelf(member)) logEvent({ dir: "out", who: member, ev: "mode", text: `You set ${nameOf(member)} to ${mode} mode` });
 		rcSend(member, { t: "mode", mode, ...(key !== ALL ? { toy: key } : {}) });
 		ui.renderSoon();
 	}
@@ -1688,6 +2002,7 @@
 	function stopLive(member) {
 		const c = controlling.get(member);
 		if (!c) return;
+		outDone(member, c);
 		c.playingBy?.clear();
 		c.liveBy?.clear();
 		clearTimeout(c.liveTimer);
@@ -1761,7 +2076,7 @@
 		for (const [m, c] of [...controlling]) {
 			if (isSelf(m)) continue;
 			if (!charOf(m)) (controlling.delete(m), (changed = true));
-			else if (c.state === "granted" && c.until && now > c.until) (controlling.set(m, { state: "revoked", reason: "Time's up", at: now }), (changed = true));
+			else if (c.state === "granted" && c.until && now > c.until) (outDone(m, c), controlling.set(m, { state: "revoked", reason: "Time's up", at: now }), (changed = true));
 		}
 		// Heartbeat out to everyone whose toy we control
 		for (const [m, c] of controlling) if (c.state === "granted" && !isSelf(m) && now - (lastSentTo.get(m) || 0) >= HB_EVERY) rcSend(m, { t: "hb" });
@@ -1781,6 +2096,7 @@
 			if (c.state !== "granted" || isSelf(m)) continue;
 			const quiet = now - Math.max(lastHeard.get(m) || 0, c.at || 0);
 			if (quiet > HB_LOST) {
+				outDone(m, c);
 				controlling.set(m, { state: "lost", reason: "Lost contact", at: now });
 				ui.toast(`Lost contact with ${nameOf(m)}.`);
 				changed = true;
@@ -1831,12 +2147,12 @@
 					const row = { n: t.display, k: t.key, pct: Math.round(t.value * 100), e: driven.includes(t) ? 1 : 0, m: !lane ? "game" : lane.lvl != null ? "lvl" : lane.mode ? "mode" : lane.pat ? "pat" : "live" };
 					if (lane?.lvl != null) row.lv = lane.lvl;
 					if (lane?.mode) row.md = lane.mode;
-					if (lane?.pat && laneDrives(t, lane)) Object.assign(row, { pat: lane.pat, el: now - lane.t0, left: lane.until ? lane.until - now : 0 });
+					if (lane?.pat && laneDrives(t, lane)) Object.assign(row, isBig(lane.pat) ? { pl: patternText(lane.pat) } : { pat: lane.pat }, { el: now - lane.t0, left: lane.until ? lane.until - now : 0 });
 					return row;
 				});
 				// Older controllers read the top-level active/pat/left
 				const any = mine ? remoteCtl.lanes.get(ALL) || [...remoteCtl.lanes.values()][0] : null;
-				rcSend(m, { t: "status", toys: list, active: mine && !!remoteCtl.lanes.size, ...(any?.pat ? { pat: any.pat, left: any.until ? any.until - now : 0 } : {}) });
+				rcSend(m, { t: "status", toys: list, active: mine && !!remoteCtl.lanes.size, ...(any?.pat ? { ...(isBig(any.pat) ? { pl: patternText(any.pat) } : { pat: any.pat }), left: any.until ? any.until - now : 0 } : {}) });
 			}
 		}
 	}
@@ -1944,6 +2260,13 @@
 #vl-body .vl-k{width:30px;color:#bbb;font-size:11px}
 #vl-body .vl-prev{width:100%;height:36px;background:var(--bcd-ctl,#1e1a26);border-radius:4px;display:block;margin:2px 0}
 #vl-body button.go{background:#2c6b3a;border-color:#3a8}
+#vl-body .vl-list{margin:2px 0}
+#vl-body .vl-li{display:flex;align-items:center;gap:4px;padding:2px 0;border-bottom:1px solid var(--bcd-line-soft,#2f2a3a)}
+#vl-body .vl-li:last-child{border-bottom:0}
+#vl-body .vl-li-t{flex:1;min-width:0;font-size:11px;overflow-wrap:anywhere}
+#vl-body .vl-li-t small{display:block;color:#999;font-size:10px}
+#vl-body .vl-li button{padding:0 5px;flex:0 0 auto}
+#vl-body .vl-hist{max-height:260px;overflow-y:auto}
 #vl-toast{position:fixed;z-index:10001;left:50%;bottom:20px;transform:translateX(-50%);background:var(--bcd-ctl,#2a2633);color:#eee;border:1px solid var(--bcd-ctl-line,#5a5070);border-radius:8px;padding:6px 12px;font:13px system-ui,sans-serif;pointer-events:none}
 `;
 
@@ -2001,7 +2324,7 @@
 			const out = [];
 			for (const [m, c] of controlling) {
 				if (c.state !== "granted") continue;
-				const pats = [...(c.playingBy?.values() || [])].map((p) => PATTERNS[p.pat.type].label);
+				const pats = [...(c.playingBy?.values() || [])].map((p) => patLabel(p.pat));
 				if (isSelf(m)) continue; // shown as "🎮 You" already
 				if (pats.length) out.push(`▶ ${nameOf(m)}: ${pats.join(", ")}`);
 				else if (c.liveBy?.size) out.push(`▶ ${nameOf(m)}: live ${c.val || 0}%`);
@@ -2182,7 +2505,7 @@
 			// One line per toy when they have more than one
 			const txt =
 				toysNow.length > 1
-					? toysNow.map((t) => `${t.n} ${t.pct}%${t.m === "lvl" ? ` ■ ${LEVEL_NAMES[t.lv]}` : t.m === "mode" ? ` ▶ ${t.md}` : t.m === "pat" && t.pat ? ` ▶ ${PATTERNS[t.pat.type].label}` : t.m === "live" ? " ● live" : ""}`).join(" · ")
+					? toysNow.map((t) => `${t.n} ${t.pct}%${t.m === "lvl" ? ` ■ ${LEVEL_NAMES[t.lv]}` : t.m === "mode" ? ` ▶ ${t.md}` : t.m === "pat" && (t.pat || t.pl) ? ` ▶ ${t.pat ? patLabel(t.pat) : t.pl}` : t.m === "live" ? " ● live" : ""}`).join(" · ")
 					: "";
 			if (lines.textContent !== txt) lines.textContent = txt;
 		}
@@ -2272,6 +2595,111 @@
 		// Pattern picker: shape, low/high, speed, how long, with a preview of the curve
 		const PERIODS = [[500, "0.5 s"], [1000, "1 s"], [2000, "2 s"], [3000, "3 s"], [5000, "5 s"], [10000, "10 s"], [20000, "20 s"]];
 		const DURATIONS = [[0, "until stopped"], [15000, "15 s"], [30000, "30 s"], [60000, "1 min"], [120000, "2 min"], [300000, "5 min"], [600000, "10 min"]];
+		// A fresh random seed (each step of a program its own), so random shapes differ each time they're played
+		const reseed = (p) => (p.type === "prog" ? { ...p, steps: p.steps.map(reseed) } : { ...p, seed: (Math.random() * 2 ** 31) | 0 });
+		// A pattern's curve on a canvas, the first `span` ms of it
+		function drawPat(cv, p, span) {
+			const ctx = cv.getContext("2d");
+			const W = cv.width;
+			const H = cv.height;
+			ctx.clearRect(0, 0, W, H);
+			ctx.strokeStyle = tc("accent", "#c070d0");
+			ctx.lineWidth = 1.5;
+			ctx.beginPath();
+			const rnd = seeded(p.seed);
+			for (let x = 0; x <= W; x++) {
+				const y = H - 2 - (patternAt(p, (x / W) * span, rnd) / 100) * (H - 4);
+				x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+			}
+			ctx.stroke();
+		}
+		// Plays a saved or remembered pattern on your own toys ("Play on my toys"), where the game lets you
+		function playOnMine(p) {
+			const acc = selfAccess();
+			if (!acc.ok) return toast(`${acc.why}.`);
+			selfOpen = true;
+			const c = ensureSelf();
+			if (!c) return;
+			sendPattern(Player.MemberNumber, reseed(p));
+			toast(`Playing ${patLabel(p)} on your toys.`);
+			render();
+		}
+		// Saved patterns: pick one and play it, or load it into the editor (programs into the program builder)
+		function savedRow(m, c, pat) {
+			if (!settings.saved.length) return null;
+			const big = peerPlaysBig(m);
+			if (!findSaved(c.savedSel)) c.savedSel = (settings.saved.find((x) => big || !isBig(x.p)) || settings.saved[0]).name;
+			const ss = h(
+				"select",
+				{ "data-id": `rc-saved-${m}`, title: "Your saved patterns", onchange: (e) => (c.savedSel = e.target.value) },
+				settings.saved.map((x) => h("option", { value: x.name, selected: x.name === c.savedSel, disabled: !big && isBig(x.p) }, `${x.name} · ${patLabel(x.p)}`))
+			);
+			const cur = () => findSaved(ss.value)?.p;
+			return h(
+				"div",
+				{ class: "row" },
+				ss,
+				h("button", { class: "go", title: "Play it", onclick: () => cur() && sendPattern(m, reseed(cur())) }, "▶"),
+				h(
+					"button",
+					{
+						title: "Load it into the editor to change it",
+						onclick: () => {
+							const p = cur();
+							if (!p) return;
+							if (p.type === "rec") return toast("Recordings can only be played, not edited.");
+							if (p.type === "prog") c.prog = { steps: p.steps.map((x) => ({ ...x })), loop: p.loop };
+							else Object.assign(pat, p);
+							render();
+						},
+					},
+					"✎"
+				)
+			);
+		}
+		// The program being built: its steps, a preview of the whole run, loop, play and save
+		function programBlock(m, c) {
+			if (!c.prog?.steps.length) return null;
+			const big = peerPlaysBig(m);
+			const prog = () => cleanPattern({ type: "prog", steps: c.prog.steps, loop: c.prog.loop });
+			const pp = prog();
+			if (!pp) return null;
+			const cv = h("canvas", { class: "vl-prev", width: 200, height: 36 });
+			setTimeout(() => drawPat(cv, pp, pp.period));
+			const move = (i, d) => {
+				const st = c.prog.steps;
+				[st[i], st[i + d]] = [st[i + d], st[i]];
+				render();
+			};
+			return h(
+				"div",
+				{ class: "vl-pat" },
+				h("div", { class: "vl-sub" }, `Program · ${fmtDur(pp.period)}${c.prog.loop ? " · loops" : ""}`),
+				h(
+					"div",
+					{ class: "vl-list" },
+					c.prog.steps.map((st, i) =>
+						h(
+							"div",
+							{ class: "vl-li" },
+							h("span", { class: "vl-li-t" }, `${i + 1}. ${stepText(st)} for ${fmtDur(st.dur)}`),
+							h("button", { title: "Move up", disabled: i === 0, onclick: () => move(i, -1) }, "↑"),
+							h("button", { title: "Remove this step", onclick: () => (c.prog.steps.splice(i, 1), render()) }, "✕")
+						)
+					)
+				),
+				cv,
+				h(
+					"div",
+					{ class: "row" },
+					h("label", { title: "Start again from the first step until stopped" }, h("input", { type: "checkbox", checked: c.prog.loop, onchange: (e) => ((c.prog.loop = e.target.checked), render()) }), " Loop"),
+					h("span", { style: "flex:1" }),
+					h("button", { class: "go", disabled: !big, title: big ? "Play the program" : `They need Vibe Link ${PROG_VER} or newer for programs`, onclick: () => sendPattern(m, reseed(prog())) }, "▶ Play"),
+					h("button", { title: "Save the program", onclick: () => promptSave(prog(), "Program") }, "💾"),
+					h("button", { title: "Start a new program", onclick: () => ((c.prog = null), render()) }, "Clear")
+				)
+			);
+		}
 		function patternControls(m, c) {
 			const pat = (c.pat = c.pat || { type: "wave", min: 10, max: 70, period: 3000, dur: 0, seed: 1 });
 			const preview = h("canvas", { class: "vl-prev", width: 200, height: 36 });
@@ -2301,16 +2729,29 @@
 			const hi = h("input", { type: "range", min: 0, max: 100, value: pat.max, class: "vl-live", "data-id": `rc-hi-${m}`, title: "Highest strength" });
 			const loT = h("span", { class: "vl-pct" }, `${pat.min}%`);
 			const hiT = h("span", { class: "vl-pct" }, `${pat.max}%`);
-			lo.addEventListener("input", () => ((pat.min = Math.min(+lo.value, pat.max)), (lo.value = pat.min), (loT.textContent = `${pat.min}%`), draw()));
-			hi.addEventListener("input", () => ((pat.max = Math.max(+hi.value, pat.min)), (hi.value = pat.max), (hiT.textContent = `${pat.max}%`), draw()));
-			setTimeout(draw);
+			// Each slider pushes the other along instead of stopping at it, so they never get stuck together
+			const flat = h("div", { class: "hint" });
+			const sync = () => {
+				lo.value = pat.min;
+				hi.value = pat.max;
+				loT.textContent = `${pat.min}%`;
+				hiT.textContent = `${pat.max}%`;
+				flat.textContent = pat.min === pat.max ? `Low and High are the same, so this plays a steady ${pat.min}%.` : "";
+				flat.style.display = pat.min === pat.max ? "" : "none";
+				draw();
+			};
+			lo.addEventListener("input", () => ((pat.min = +lo.value), (pat.max = Math.max(pat.max, pat.min)), sync()));
+			hi.addEventListener("input", () => ((pat.max = +hi.value), (pat.min = Math.min(pat.min, pat.max)), sync()));
+			setTimeout(sync);
 			return h(
 				"div",
 				{ class: "vl-pat" },
 				h("div", { class: "vl-sub" }, "Pattern"),
+				savedRow(m, c, pat),
 				h("div", { class: "row" }, sel("ptype", PATTERN_TYPES.map((k) => [k, PATTERNS[k].label]), "type", false), sel("pspeed", PERIODS, "period")),
 				h("div", { class: "row" }, h("span", { class: "vl-k" }, "Low"), lo, loT),
 				h("div", { class: "row" }, h("span", { class: "vl-k" }, "High"), hi, hiT),
+				flat,
 				preview,
 				h(
 					"div",
@@ -2328,8 +2769,28 @@
 							},
 						},
 						"▶ Play"
+					),
+					h("button", { title: "Save this pattern", onclick: () => promptSave({ ...pat }, `${PATTERNS[pat.type].label} ${pat.min}-${pat.max}%`) }, "💾")
+				),
+				h(
+					"div",
+					{ class: "row" },
+					h(
+						"button",
+						{
+							class: "vl-wide",
+							title: "Add this pattern to a program as its next step (for its 'how long', or 1 min if it runs until stopped)",
+							onclick: () => {
+								c.prog = c.prog || { steps: [], loop: false };
+								if (c.prog.steps.length >= PROG_MAX_STEPS) return toast(`A program has at most ${PROG_MAX_STEPS} steps.`);
+								c.prog.steps.push({ ...pat, dur: pat.dur || 60_000 });
+								render();
+							},
+						},
+						"+ Add to program"
 					)
-				)
+				),
+				programBlock(m, c)
 			);
 		}
 
@@ -2384,6 +2845,9 @@
 				out.push(h("div", { class: "row" }, h("span", { style: "flex:1;min-width:0" }, h("b", {}, nameOf(m)), h("div", { class: "hint", "data-rc-left": c?.state === "granted" && c.until ? m : null }, status)), btn));
 				if (c?.state === "granted") out.push(liveControls(m, c));
 			}
+
+			section(out, "saved", `My patterns${settings.saved.length ? ` (${settings.saved.length})` : ""}`, secSaved);
+			section(out, "hist", "History", secHistory);
 
 			// Who may control you
 			out.push(h("h3", {}, "Who can control you"));
@@ -2497,6 +2961,142 @@
 			out.push(h("div", { class: "row" }, sw));
 			out.push(announceRow(r));
 			out.push(h("div", { class: "hint" }, "Saying the safe word in chat, 🛑 or the stop hotkey stop your toy, take control away from everyone and refuse new requests for the time above. Your max strength scales whatever a controller sends."));
+		}
+
+		// Copies a pattern code to the clipboard (or shows it to copy by hand if the browser won't)
+		async function copyCode(name, pat) {
+			const code = patternCode(name, pat);
+			try {
+				await navigator.clipboard.writeText(code);
+				toast(`Code for "${name}" copied (${code.length} characters).`);
+			} catch {
+				window.prompt("Copy this code:", code);
+			}
+		}
+		// Import: a pasted code, or a file (Export all's .json, or a text file of codes)
+		function importRows(o) {
+			const box = h("input", { type: "text", "data-id": "vl-import-code", placeholder: "Paste a pattern code (VL1:…)" });
+			const fromCode = () => {
+				const x = readPatternCode(box.value);
+				if (!x) return toast("That isn't a Vibe Link pattern code.");
+				const name = window.prompt("Save as:", freeName(x.name));
+				if (name == null) return;
+				if (findSaved(name) && !window.confirm(`Replace your "${findSaved(name).name}"?`)) return;
+				toast(savePatternAs(name, x.p));
+				box.value = "";
+			};
+			box.addEventListener("keydown", (e) => e.key === "Enter" && fromCode());
+			const file = h("input", { type: "file", accept: ".json,.txt,application/json,text/plain", style: "display:none" });
+			file.addEventListener("change", async () => {
+				const f = file.files?.[0];
+				file.value = "";
+				if (!f) return;
+				if (f.size > 2_000_000) return toast("That file is too big.");
+				const list = readImportFile(await f.text());
+				if (!list.length) return toast("No Vibe Link patterns found in that file.");
+				const clash = list.filter((x) => findSaved(x.name)).length;
+				const replace = clash > 0 && window.confirm(`${clash} of the ${list.length} have names you already use.\n\nOK: replace yours.\nCancel: keep both (the imported ones get "(2)").`);
+				toast(importSaved(list, replace));
+			});
+			const exportAll = () => {
+				const url = URL.createObjectURL(new Blob([exportFileText()], { type: "application/json" }));
+				const a = h("a", { href: url, download: "vibe-link-patterns.json" });
+				document.body.append(a);
+				a.click();
+				a.remove();
+				setTimeout(() => URL.revokeObjectURL(url), 1000);
+			};
+			o.push(h("div", { class: "row" }, box, h("button", { title: "Save the pattern from this code", onclick: fromCode }, "Import")));
+			o.push(
+				h(
+					"div",
+					{ class: "row" },
+					h("button", { style: "flex:1", title: "Download all your saved patterns as a file (a backup, or to move them to another account)", disabled: !settings.saved.length, onclick: exportAll }, "⭳ Export all"),
+					h("button", { style: "flex:1", title: "Add the patterns from an exported file", onclick: () => file.click() }, "⭱ Import file"),
+					file
+				)
+			);
+		}
+		// Your saved patterns, programs and recordings: play on your own toys, copy as a code, rename, delete
+		// (controllers pick them in the pattern picker)
+		function secSaved(o) {
+			if (!settings.saved.length) {
+				o.push(h("div", { class: "hint" }, "Save patterns and programs with 💾 in a pattern picker, or from the History, or import them below."));
+				return importRows(o);
+			}
+			o.push(
+				h(
+					"div",
+					{ class: "vl-list" },
+					settings.saved.map((x) =>
+						h(
+							"div",
+							{ class: "vl-li" },
+							h("span", { class: "vl-li-t" }, x.name, h("small", {}, patternText(x.p))),
+							h("button", { title: "Play on my toys", onclick: () => playOnMine(x.p) }, "▶"),
+							h("button", { title: "Copy as a code to share", onclick: () => copyCode(x.name, x.p) }, "📋"),
+							h(
+								"button",
+								{
+									title: "Rename",
+									onclick: () => {
+										const n = window.prompt("New name:", x.name);
+										if (!n || !n.trim() || n.trim() === x.name) return;
+										deleteSaved(x.name);
+										toast(savePatternAs(n, x.p));
+									},
+								},
+								"✎"
+							),
+							h("button", { title: "Delete", onclick: () => window.confirm(`Delete "${x.name}"?`) && deleteSaved(x.name) }, "✕")
+						)
+					)
+				)
+			);
+			importRows(o);
+			o.push(h("div", { class: "hint" }, `Saved with your account. In a pattern picker, choose one to play it on someone (programs and recordings need them on Vibe Link ${PROG_VER} or newer). 📋 copies a code anyone can import here.`));
+		}
+
+		// What happened during remote control, newest first; patterns and live sessions can be played again or saved
+		let histShow = 40;
+		function secHistory(o) {
+			const list = history();
+			o.push(
+				h(
+					"div",
+					{ class: "row" },
+					h("label", { style: "flex:1", title: "Kept in this browser only, never sent anywhere" }, h("input", { type: "checkbox", checked: settings.keepHistory, onchange: (e) => ((settings.keepHistory = e.target.checked), saveSettings()) }), " Keep a history"),
+					list.length > 0 && h("button", { title: "Delete the whole history", onclick: () => window.confirm("Clear the whole history?") && clearHistory() }, "Clear")
+				)
+			);
+			if (!list.length) return o.push(h("div", { class: "hint" }, "Who controlled whom, and what they played, shows here. Live slider sessions are kept as recordings you can play again."));
+			const today = new Date().toDateString();
+			const when = (at) => {
+				const d = new Date(at);
+				const t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+				return d.toDateString() === today ? t : `${d.toLocaleDateString([], { month: "short", day: "numeric" })} ${t}`;
+			};
+			o.push(
+				h(
+					"div",
+					{ class: "vl-list vl-hist" },
+					list
+						.slice(-histShow)
+						.reverse()
+						.map((e) =>
+							h(
+								"div",
+								{ class: "vl-li" },
+								h("span", { class: "vl-li-t" }, `${e.dir === "out" ? "→" : "←"} ${e.text}`, h("small", {}, when(e.at))),
+								e.p && h("button", { title: "Play on my toys", onclick: () => playOnMine(e.p) }, "▶"),
+								e.p && h("button", { title: "Save it", onclick: () => promptSave(e.p, `${e.dir === "out" ? `To ${e.name}` : e.name} ${patLabel(e.p)}`) }, "💾"),
+								e.p && h("button", { title: "Copy as a code to share", onclick: () => copyCode(`${e.dir === "out" ? `To ${e.name}` : e.name} ${patLabel(e.p)}`, e.p) }, "📋")
+							)
+						)
+				)
+			);
+			if (list.length > histShow) o.push(h("button", { class: "vl-wide", onclick: () => ((histShow += 60), render()) }, `Show older (${list.length - histShow})`));
+			o.push(h("div", { class: "hint" }, "← done to you · → done by you. Kept in this browser only."));
 		}
 
 		function announceRow(r) {
@@ -3100,7 +3700,7 @@
 				const c = controlling.get(Number(el.dataset.rcStatus));
 				const st = c?.status;
 				const one = st?.toys?.filter((t) => t.e) || [];
-				const doing = st?.pat ? `${patternText(st.pat)}${st.left ? `, ${fmtDur(st.left)} left` : ""}` : st?.active ? "Following you" : "Following their game";
+				const doing = st?.pat || st?.pl ? `${st.pat ? patternText(st.pat) : st.pl}${st.left ? `, ${fmtDur(st.left)} left` : ""}` : st?.active ? "Following you" : "Following their game";
 				const txt = !st || now - st.at > 4000 ? "Waiting for their toy…" : st.toys.length ? (one.length > 1 ? `${st.active ? "You're controlling" : "Following their game"} · ${one.length} toys` : `${doing}: ${st.toys.map((t) => `${t.n} ${t.pct}%`).join(" · ")}`) : "No toy connected on their side";
 				if (el.textContent !== txt) el.textContent = txt;
 			}
@@ -3130,7 +3730,7 @@
 				const s = root.querySelector(`[data-slot="${toy.id}"]`);
 				if (s) {
 					const lane = laneFor(toy);
-					const txt = lane ? `🎮 ${isSelf(remoteCtl.by) ? "You" : nameOf(remoteCtl.by)}: ${lane.lvl != null ? LEVEL_NAMES[lane.lvl] : lane.mode ? `${lane.mode} mode` : lane.pat ? PATTERNS[lane.pat.type].label : "live"}` : slotText(slotState(settings.links[toy.key]));
+					const txt = lane ? `🎮 ${isSelf(remoteCtl.by) ? "You" : nameOf(remoteCtl.by)}: ${lane.lvl != null ? LEVEL_NAMES[lane.lvl] : lane.mode ? `${lane.mode} mode` : lane.pat ? patLabel(lane.pat) : "live"}` : slotText(slotState(settings.links[toy.key]));
 					if (s.textContent !== txt) s.textContent = txt;
 				}
 			}
@@ -3426,6 +4026,7 @@
 			controlling: () => new Map(controlling),
 			asks: () => [...asks.keys()],
 			receive: rcReceive, // for testing: feed a ChatRoomMessage
+			history: () => [...history()],
 			debug: () => ({ remoteCtl: remoteCtl && { ...remoteCtl, lanes: Object.fromEntries(remoteCtl.lanes) }, toys: [...toys.values()].map((t) => ({ value: t.value, target: t.target, from: t.from, dur: t.dur, t0: t.t0, linear: t.linear })) }),
 		},
 		unload() {
