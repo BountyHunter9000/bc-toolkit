@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.0" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.1" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -2550,6 +2550,41 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// ---------- main pane ----------
 
+		// The profile view is redrawn on every refresh (new data arrives all the time while the window is open). Keep
+		// what the reader was doing: which sections are open (by their summary, without its "— 5m ago"), where the pane
+		// and any open block are scrolled, and the note being typed (text and caret), so a refresh doesn't undo it.
+		// Only for a redraw of the same view: picking another person or tab starts fresh at the top
+		let viewSig = null;
+		function keepViewState(el, sig, rebuild) {
+			const same = sig === viewSig;
+			viewSig = sig;
+			if (!same) return rebuild();
+			const keyOf = (d) => (d.querySelector(":scope > summary")?.textContent || "").split(" — ")[0];
+			const open = new Map();
+			for (const d of el.querySelectorAll("details")) if (d.open) open.set(keyOf(d), [...d.querySelectorAll("pre")].map((p) => [p.scrollTop, p.scrollLeft]));
+			const top = el.scrollTop;
+			const active = document.activeElement;
+			const typing = active && el.contains(active) && active.dataset.key ? { key: active.dataset.key, value: active.value, a: active.selectionStart, b: active.selectionEnd } : null;
+			rebuild();
+			for (const d of el.querySelectorAll("details")) {
+				const was = open.get(keyOf(d));
+				if (!was) continue;
+				d.open = true;
+				d.querySelectorAll("pre").forEach((p, i) => was[i] && ((p.scrollTop = was[i][0]), (p.scrollLeft = was[i][1])));
+			}
+			el.scrollTop = top;
+			if (typing) {
+				const t = el.querySelector(`[data-key="${typing.key}"]`);
+				if (t) {
+					t.value = typing.value;
+					t.focus();
+					try {
+						t.setSelectionRange(typing.a, typing.b);
+					} catch {}
+				}
+			}
+		}
+
 		function renderDetail() {
 			if (!panel) return;
 			const el = panel.querySelector("#fm-detail");
@@ -2557,7 +2592,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			switch (section) {
 				case "profiles":
 					fill(false);
-					return renderProfile(el);
+					return keepViewState(el, `${selected}|${detailTab}`, () => renderProfile(el));
 				case "outfits":
 					fill(false);
 					return renderOutfit(el);
@@ -3979,7 +4014,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const online = onlineFriends.get(selected);
 			const name = rec?.nickname || rec?.name || friendNameOf(selected) || "(unknown)";
 
-			const note = h("textarea", { rows: 3, style: "width:100%", placeholder: "Private notes about this person" });
+			const note = h("textarea", { rows: 3, style: "width:100%", placeholder: "Private notes about this person", "data-key": `note-${selected}` });
 			note.value = rec?.note || "";
 			let noteTimer;
 			note.addEventListener("input", () => {
