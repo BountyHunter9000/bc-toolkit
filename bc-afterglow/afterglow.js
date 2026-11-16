@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.2.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.3.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -34,6 +34,7 @@
 		orgasm: { label: "Orgasms", one: "Orgasm", icon: "💦" },
 		ruined: { label: "Ruined", one: "Ruined", icon: "💔" },
 		resisted: { label: "Resisted", one: "Resisted", icon: "✊" },
+		failed: { label: "Resist failed", one: "Resist failed", icon: "😵" }, // tried to resist and came anyway: also an orgasm
 		denied: { label: "Denied", one: "Denied", icon: "⛔" },
 	};
 	const KIND_KEYS = Object.keys(KINDS);
@@ -47,8 +48,8 @@
 	const fresh = () => ({
 		v: 1,
 		since: Date.now(),
-		totals: { orgasm: 0, ruined: 0, resisted: 0, denied: 0 },
-		base: { orgasm: 0, ruined: 0, resisted: 0, denied: 0 }, // from before Afterglow, entered by hand
+		totals: { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 },
+		base: { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 }, // from before Afterglow, entered by hand
 		last: {},
 		lastOrgasmAt: null,
 		streakStart: Date.now(),
@@ -98,7 +99,7 @@
 			state = fresh();
 		}
 		log = readLog();
-		session = { orgasm: 0, ruined: 0, resisted: 0, denied: 0 };
+		session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
 		const before = Math.max(state.alive || 0, readAlive());
 		const now = Date.now();
 		if (before && now - before > AWAY_MIN_MS) addAway(before, now);
@@ -163,7 +164,7 @@
 	// ---------- event log (this browser only) ----------
 	// [time, kind, room, how?]: for "today" and the recent list
 	let log = [];
-	let session = { orgasm: 0, ruined: 0, resisted: 0, denied: 0 };
+	let session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
 	const logKey = () => `Afterglow.log.${Player.MemberNumber || 0}`;
 	function readLog() {
 		try {
@@ -187,6 +188,11 @@
 		state.totals[kind]++;
 		state.last[kind] = now;
 		session[kind]++;
+		if (how === "failed") {
+			state.totals.failed++;
+			state.last.failed = now;
+			session.failed++;
+		}
 		if (kind === "orgasm") {
 			// The stretch that just ended: a new record if it's the longest (only a lower bound if it started at install)
 			const gap = now - state.streakStart;
@@ -272,12 +278,14 @@
 	};
 
 	// The game runs first in every hook; we only look at what happened
-	// An orgasm, or a ruined one (the game's ActivityOrgasmRuined says which)
+	// An orgasm, or a ruined one (the game's ActivityOrgasmRuined says which). If the resist mini-game was still
+	// running (OrgasmStage 1), its time ran out: you tried to resist and came anyway.
 	mod.hookFunction("ActivityOrgasmStart", 0, (args, next) => {
 		const mine = isMe(args[0]);
 		const ruined = mine && typeof ActivityOrgasmRuined !== "undefined" && ActivityOrgasmRuined === true;
+		const failed = mine && !ruined && Player.ArousalSettings?.OrgasmStage === 1;
 		const r = next(args);
-		if (mine) safely(() => record(ruined ? "ruined" : "orgasm"));
+		if (mine) safely(() => record(ruined ? "ruined" : "orgasm", failed ? "failed" : undefined));
 		return r;
 	});
 	// The resist mini-game: winning it ends the orgasm timer
@@ -328,8 +336,12 @@
 	function todayCounts() {
 		const start = new Date();
 		start.setHours(0, 0, 0, 0);
-		const out = { orgasm: 0, ruined: 0, resisted: 0, denied: 0 };
-		for (const e of log) if (e[0] >= start.getTime() && e[1] in out) out[e[1]]++;
+		const out = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
+		for (const e of log)
+			if (e[0] >= start.getTime() && e[1] in out) {
+				out[e[1]]++;
+				if (e[3] === "failed") out.failed++;
+			}
 		return out;
 	}
 	const sinceText = () => fmtSpan(elapsed(state.streakStart));
@@ -475,7 +487,7 @@
 									.map((e) =>
 										e[1] === "away"
 											? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(e[3])}`)
-											: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : ""}${e[2] ? ` in ${e[2]}` : ""}`)
+											: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : e[3] === "failed" ? ` (${KINDS.failed.icon} resist failed)` : ""}${e[2] ? ` in ${e[2]}` : ""}`)
 									)
 							: h("div", { class: "hint" }, "Nothing yet.")
 					)
@@ -486,6 +498,7 @@
 					h("summary", {}, "More"),
 					h("div", { class: "hint" }, `Counting since ${fmtWhen(state.since)}. Counts and records go with your account; the recent list stays in this browser.`),
 					h("div", { class: "hint" }, "Denied: held at the edge by a denial or edging effect. A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
+				h("div", { class: "hint" }, "😵 Resist failed: you started resisting but the time ran out and you came. It's counted as an orgasm too."),
 				h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial (or edging) or ruin item is on you: how long it's been on. Otherwise they and ✊ count how many since your last orgasm."),
 					h(
 						"label",
@@ -527,13 +540,15 @@
 				? (state.lastOrgasmAt ? `Last one ${fmtWhen(state.lastOrgasmAt)}` : `None seen since Afterglow started counting (${fmtWhen(state.since)})`) + (other ? ` · ${other}` : "")
 				: held
 					? `${state.streak[k]} now · rec ${state.rec[k]}`
-					: `rec ${state.rec[k]}`;
+					: k === "resisted"
+						? `rec ${state.rec[k]} · ${KINDS.failed.icon} ${allTime("failed")}`
+						: `rec ${state.rec[k]}`;
 			const what = { denied: "a denial or edging item", ruined: "a ruin item" }[k];
 			const title = big
 				? `Time since your last orgasm${state.timeMode === "online" ? ", online" : ""}${other ? `; ${other}` : ""}.`
 				: held
 					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[k])}. ${state.streak[k]} ${KINDS[k].label.toLowerCase()} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.`
-					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${what ? ` While ${what} is on you, this shows how long it's been on.` : ""}`;
+					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${what ? ` While ${what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
 			return h(
 				"div",
 				{
@@ -610,7 +625,7 @@
 	function resetAll() {
 		if (!window.confirm("Reset every Afterglow count, record and the recent list on this account? This can't be undone.")) return;
 		state = fresh();
-		session = { orgasm: 0, ruined: 0, resisted: 0, denied: 0 };
+		session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
 		log = [];
 		writeLog();
 		save();
@@ -624,7 +639,7 @@
 			`✨ ${state.lastOrgasmAt ? "" : "≥ "}${sinceText()}${state.timeMode === "online" ? " online" : ""} since last orgasm` +
 			` · this stretch: ${state.streak.denied} denied, ${state.streak.ruined} ruined, ${state.streak.resisted} resisted` +
 			(g ? ` · longest: ${g.exact ? "" : "≥ "}${fmtSpan(g.ms)}` : "") +
-			` · all: ${allTime("orgasm")} orgasms, ${allTime("denied")} denied`
+			` · all: ${allTime("orgasm")} orgasms, ${allTime("denied")} denied, ${allTime("resisted")} resisted, ${allTime("failed")} failed resists`
 		);
 	}
 	const COMMAND = {

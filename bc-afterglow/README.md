@@ -15,12 +15,12 @@ tab's summary shows the time since your last orgasm, or whichever clock you pick
   - While a denial (or edging) item is on you, ⛔ turns into a timer: **Held** for how long it's been on,
     with the count underneath. 💔 does the same while a ruin item is on you. They go back to counts when
     the item comes off.
-  - ✊ is always a count.
+  - ✊ is always a count. Under it, 😵 is how many times (all time) you tried to resist and came anyway.
 - Click the big clock or a box to show it on the dock tab's summary (it gets a highlighted border, 📌).
   The time since your last orgasm is the default.
 - **🏆 Longest without**: your record stretch between two orgasms, with its dates. While the current
   stretch is longer, it says you've passed your record.
-- **Counts** of orgasms, ruined, resisted and denied for this session, today and all time, plus the
+- **Counts** of orgasms, ruined, resisted, failed resists and denied for this session, today and all time, plus the
   game's own lifetime orgasm count for your character: the number under its arousal meter when you
   zoom in on it. The game saves that number only when you leave its Preferences screen and with
   arousal updates in chat rooms, so it can lag behind or read 0; Afterglow's own counts don't depend on it.
@@ -36,6 +36,7 @@ Afterglow watches the game's own orgasm functions:
 | 💦 **Orgasm** | you orgasm (you didn't resist, or the resist timed out) |
 | 💔 **Ruined** | an orgasm is ruined (a ruin effect, e.g. some belts and vibrators) |
 | ✊ **Resisted** | you win the game's resist mini-game |
+| 😵 **Resist failed** | you start the resist mini-game but its time runs out and you orgasm (also counted as an orgasm) |
 | ⛔ **Denied** | full arousal is held at the edge by a denial or edging effect instead of an orgasm |
 
 The game keeps asking while you're held at the edge, so one spell there counts as one denial: it counts
