@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.1.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.2.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -38,6 +38,7 @@
 	};
 	const KIND_KEYS = Object.keys(KINDS);
 	const STREAK_KEYS = ["denied", "ruined", "resisted"]; // counted between two orgasms
+	const HELD_KEYS = ["denied", "ruined"]; // these also time how long the effect has been on you
 
 	// ---------- state (with the account) ----------
 	// since: when Afterglow started counting on this account. lastOrgasmAt: the last orgasm it saw (null: none yet,
@@ -53,7 +54,8 @@
 		streakStart: Date.now(),
 		streak: { denied: 0, ruined: 0, resisted: 0 },
 		rec: { gap: null, gapOnline: null, denied: 0, ruined: 0, resisted: 0 },
-		show: "orgasm", // the clock shown big and on the dock tab: time since the last orgasm, denial, ruin or resist
+		show: "orgasm", // what the dock tab shows: the orgasm clock, or the denied / ruined / resisted box
+		held: { denied: 0, ruined: 0 }, // since when a denial (or edging) / ruin effect has been on you, 0: none now
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
 		alive: 0, // the last "still here" saved with the account (every few minutes), to find time away on another device
 		away: [], // [from, to]: stretches you were away (logged out, tab closed, disconnected), newest last
@@ -74,6 +76,7 @@
 		for (const k of STREAK_KEYS) out.streak[k] = num(s.streak?.[k]);
 		for (const k of STREAK_KEYS) out.rec[k] = num(s.rec?.[k]);
 		if (KINDS[s.show]) out.show = s.show;
+		for (const k of HELD_KEYS) out.held[k] = num(s.held?.[k]);
 		const gap = (g) => (g && num(g.ms) ? { ms: num(g.ms), from: num(g.from), to: num(g.to), exact: !!g.exact, ...(g.manual ? { manual: true } : {}) } : null);
 		out.rec.gap = gap(s.rec?.gap);
 		// Records from before time away was tracked: all of it counts as online
@@ -218,6 +221,46 @@
 		dropped = false;
 	}
 
+	// What's on you now: a denial (or edging) effect holds you at the edge; a ruin effect ruins the orgasm instead
+	const effects = () => (Array.isArray(Player.Effect) ? Player.Effect : []);
+	const edged = () => {
+		try {
+			return (typeof Player.IsEdged === "function" && Player.IsEdged()) || (typeof InventoryCraftCount === "function" && InventoryCraftCount(Player, "Edging") > 0);
+		} catch {
+			return false;
+		}
+	};
+	const heldNow = {
+		denied: () => (effects().includes("DenialMode") && !effects().includes("RuinOrgasms")) || edged(),
+		ruined: () => effects().includes("RuinOrgasms"),
+	};
+	// Start or stop the "held for" timers when such an item goes on or comes off. The effect list can be empty for a
+	// moment while the game redraws you, so it has to stay off a few seconds before the timer stops.
+	const offSince = { denied: 0, ruined: 0 };
+	function checkHeld() {
+		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber || !Array.isArray(Player.Appearance) || !Player.Appearance.length) return;
+		let changed = false;
+		for (const k of HELD_KEYS) {
+			const on = heldNow[k]();
+			if (on) offSince[k] = 0;
+			if (on && !state.held[k]) {
+				state.held[k] = Date.now();
+				changed = true;
+			} else if (!on && state.held[k]) {
+				offSince[k] ||= Date.now();
+				if (Date.now() - offSince[k] >= 5000) {
+					state.held[k] = 0;
+					offSince[k] = 0;
+					changed = true;
+				}
+			}
+		}
+		if (changed) {
+			save();
+			ui.render();
+		}
+	}
+
 	const isMe = (C) => !!C && (typeof C.IsPlayer === "function" ? C.IsPlayer() : C === Player);
 	const orgasmTimer = () => Player.ArousalSettings?.OrgasmTimer || 0;
 	const safely = (fn) => {
@@ -259,7 +302,7 @@
 			safely(() => {
 				const fx = Array.isArray(C.Effect) ? C.Effect : [];
 				if (fx.includes("DenialMode") && !(bypass || fx.includes("RuinOrgasms"))) how = "denial";
-				else if (!bypass && ((typeof C.IsEdged === "function" && C.IsEdged()) || (typeof InventoryCraftCount === "function" && InventoryCraftCount(Player, "Edging") > 0))) how = "edge";
+				else if (!bypass && edged()) how = "edge";
 			});
 		const r = next(args);
 		if (how) safely(() => denyHit(how));
@@ -291,19 +334,26 @@
 	}
 	const sinceText = () => fmtSpan(elapsed(state.streakStart));
 	const allTime = (k) => state.totals[k] + (state.base[k] || 0);
-	// The chosen clock: { t, exact } since the last one of that kind, or null if there's none yet. For orgasms the
+	// The orgasm clock: { t, exact }. The
 	// stretch starts at install until the first one (exact: false, shown as "≥").
-	const SINCE_WORDS = { orgasm: "orgasm", denied: "denial", ruined: "ruined orgasm", resisted: "resist" };
 	function sinceFor(k) {
 		if (k === "orgasm") return { t: state.streakStart, exact: !!state.lastOrgasmAt };
 		return state.last[k] ? { t: state.last[k], exact: true } : null;
 	}
-	// compact: the two largest units only ("1d 2h", "4h 0m", "25m 3s"), for the small clocks
-	function clockText(k, short = false, compact = false) {
-		const x = sinceFor(k);
-		if (!x) return short ? `no ${SINCE_WORDS[k]} yet` : "—";
-		const span = fmtSpan(elapsed(x.t));
-		return `${x.exact ? "" : "≥ "}${compact ? span.split(" ").slice(0, 2).join(" ") : span}${short ? ` since last ${SINCE_WORDS[k]}` : ""}`;
+	const two = (span) => span.split(" ").slice(0, 2).join(" "); // the two largest units: "1d 2h", "4h 0m", "25m 3s"
+	// The big text of a box. Orgasm: time since the last one. Denied / ruined: how long the item has been on you while
+	// one is, otherwise how many this stretch. Resisted: how many this stretch.
+	// short: the dock tab's summary line.
+	function clockText(k, short = false) {
+		if (k === "orgasm") {
+			const x = sinceFor(k);
+			return `${x.exact ? "" : "≥ "}${fmtSpan(elapsed(x.t))}${short ? " since last orgasm" : ""}`;
+		}
+		if (state.held[k]) {
+			const span = two(fmtSpan(elapsed(state.held[k])));
+			return short ? `${KINDS[k].icon} held ${span} · ${state.streak[k]} ${KINDS[k].label.toLowerCase()}` : span;
+		}
+		return short ? `${KINDS[k].icon} ${state.streak[k]} ${KINDS[k].label.toLowerCase()} this stretch` : String(state.streak[k]);
 	}
 	// The game's own lifetime count (Player.ArousalSettings.OrgasmCount, shown under its zoomed arousal meter)
 	const gameCountText = () => {
@@ -333,6 +383,8 @@
 #ag-body .ag-clock.pin{border-color:var(--bcd-hi,#9a5cc8);box-shadow:0 0 0 1px var(--bcd-hi,#9a5cc8) inset}
 #ag-body .ag-clock .ag-t{font-weight:700;font-variant-numeric:tabular-nums;color:var(--bcd-accent,#e7b6ff);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ag-body .ag-clock.big .ag-t{font-size:20px}
+#ag-body .ag-clock.on{border-color:#c86a5c}
+#ag-body .ag-clock.on .ag-t{color:#ffb3a6}
 #ag-body .ag-clock .ag-k{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #ag-body .ag-clock:not(.big) .ag-k{letter-spacing:0;text-transform:none;font-size:10px}
 #ag-body .ag-clock:not(.big){padding:2px 4px}
@@ -434,6 +486,7 @@
 					h("summary", {}, "More"),
 					h("div", { class: "hint" }, `Counting since ${fmtWhen(state.since)}. Counts and records go with your account; the recent list stays in this browser.`),
 					h("div", { class: "hint" }, "Denied: held at the edge by a denial or edging effect. A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
+				h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial (or edging) or ruin item is on you: how long it's been on. Otherwise they and ✊ count how many since your last orgasm."),
 					h(
 						"label",
 						{ class: "ag-row", title: "Time away: logged out, the game closed, or disconnected (noticed at your next login, to within a minute)" },
@@ -460,25 +513,36 @@
 			if (away < 60_000) return "";
 			return state.timeMode === "online" ? `${fmtSpan(elapsed(t, "real"))} in all` : `${fmtSpan(elapsed(t, "online"))} online`;
 		}
-		// One clock: time since the last orgasm (the big one) or the last denial / ruin / resist (small, with how many
-		// since your last orgasm and the record). Clicking one pins it to the dock tab's summary (📌).
+		// One box. The big one: time since the last orgasm. The small ones (denied, ruined, resisted): how many since
+		// your last orgasm, with the record; denied and ruined turn into a timer while such an item is on you.
+		// Clicking a box shows it on the dock tab's summary (📌).
 		function clockCell(k) {
 			const big = k === "orgasm";
 			const pinned = k === state.show;
-			const x = sinceFor(k);
-			const other = x ? otherTime(x.t) : "";
+			const held = !big && state.held[k];
+			const x = big ? sinceFor(k) : null;
+			const other = big ? otherTime(x.t) : "";
+			const lastTxt = state.last[k] ? `last ${fmtWhen(state.last[k])}` : `none yet`;
 			const sub = big
 				? (state.lastOrgasmAt ? `Last one ${fmtWhen(state.lastOrgasmAt)}` : `None seen since Afterglow started counting (${fmtWhen(state.since)})`) + (other ? ` · ${other}` : "")
-				: `${state.streak[k]} now · rec ${state.rec[k]}`;
+				: held
+					? `${state.streak[k]} now · rec ${state.rec[k]}`
+					: `rec ${state.rec[k]}`;
+			const what = { denied: "a denial or edging item", ruined: "a ruin item" }[k];
+			const title = big
+				? `Time since your last orgasm${state.timeMode === "online" ? ", online" : ""}${other ? `; ${other}` : ""}.`
+				: held
+					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[k])}. ${state.streak[k]} ${KINDS[k].label.toLowerCase()} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.`
+					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${what ? ` While ${what} is on you, this shows how long it's been on.` : ""}`;
 			return h(
 				"div",
 				{
-					class: `ag-clock${big ? " big" : ""}${pinned ? " pin" : ""}`,
-					title: `Time since your last ${SINCE_WORDS[k]}${state.timeMode === "online" ? ", online" : ""}${state.last[k] && !big ? ` (${fmtWhen(state.last[k])})` : ""}${other ? `; ${other}` : ""}.${big ? "" : ` ${state.streak[k]} since your last orgasm; the most in one stretch: ${state.rec[k]}.`}${pinned ? " Shown on the dock tab." : " Click to show it on the dock tab."}`,
+					class: `ag-clock${big ? " big" : ""}${pinned ? " pin" : ""}${held ? " on" : ""}`,
+					title: `${title}${pinned ? " Shown on the dock tab." : " Click to show it on the dock tab."}`,
 					onclick: () => ((state.show = k), save(), render()),
 				},
-				h("div", { class: "ag-k" }, big ? `${KINDS[k].icon} Since last orgasm${pinned ? " 📌" : ""}` : `${KINDS[k].icon} ${KINDS[k].one}`),
-				h("div", { class: "ag-t", "data-ag-clock": k, "data-short": big ? null : "1" }, clockText(k, false, !big)),
+				h("div", { class: "ag-k" }, big ? `${KINDS[k].icon} Since last orgasm${pinned ? " 📌" : ""}` : `${KINDS[k].icon} ${held ? "Held" : KINDS[k].label}${pinned ? " 📌" : ""}`),
+				h("div", { class: "ag-t", "data-ag-clock": k }, clockText(k)),
 				h("div", { class: "ag-sub" }, sub)
 			);
 		}
@@ -530,7 +594,7 @@
 			if (!panel || !(Player.MemberNumber && loadedFor === Player.MemberNumber)) return;
 			panel.setSummary(clockText(state.show, true));
 			for (const el of root?.querySelectorAll("[data-ag-clock]") || []) {
-				const t = clockText(el.dataset.agClock, false, !!el.dataset.short);
+				const t = clockText(el.dataset.agClock);
 				if (el.textContent !== t) el.textContent = t;
 			}
 			const gc = root?.querySelector('[data-ag="game"]');
@@ -595,6 +659,7 @@
 			ui.render();
 		}
 		if ((Player.ArousalSettings?.Progress ?? 0) < DENY_DROP) dropped = true;
+		safely(checkHeld);
 		if (loadedFor && Player.MemberNumber === loadedFor && connected()) {
 			// Back after a disconnect, or the computer slept, without a new login: that silence was time away too
 			if (aliveAt && Date.now() - aliveAt > AWAY_MIN_MS + ALIVE_EVERY_MS) {

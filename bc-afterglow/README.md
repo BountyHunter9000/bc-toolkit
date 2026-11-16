@@ -9,10 +9,15 @@ tab's summary shows the time since your last orgasm, or whichever clock you pick
 
 ## What it shows
 
-- **Four clocks**: the time since your last orgasm (big, with when it was), and below it the time since
-  your last ⛔ denial, 💔 ruined orgasm and ✊ resist, each with how many since your last orgasm
-  ("4 now") and the record for one stretch ("rec 7"). Click a clock to show it on the dock tab's
-  summary (it gets a highlighted border); the time since your last orgasm is the default.
+- **The time since your last orgasm**: the big clock, with when it was.
+- **Three small boxes** below it: ⛔ denied, 💔 ruined and ✊ resisted. Each counts how many since your
+  last orgasm, with the record for one stretch ("rec 7").
+  - While a denial (or edging) item is on you, ⛔ turns into a timer: **Held** for how long it's been on,
+    with the count underneath. 💔 does the same while a ruin item is on you. They go back to counts when
+    the item comes off.
+  - ✊ is always a count.
+- Click the big clock or a box to show it on the dock tab's summary (it gets a highlighted border, 📌).
+  The time since your last orgasm is the default.
 - **🏆 Longest without**: your record stretch between two orgasms, with its dates. While the current
   stretch is longer, it says you've passed your record.
 - **Counts** of orgasms, ruined, resisted and denied for this session, today and all time, plus the
