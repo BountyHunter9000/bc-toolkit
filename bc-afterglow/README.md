@@ -89,10 +89,13 @@ current stretch there; and your longest stretch without one so far, kept as the 
 
 ## Chastity belt
 
-The game's **Modular Chastity Belt** keeps its own record while you wear it: the time of your last
+The game's **Modular Chastity Belt** (and the **Techno Chastity Cage**, which works the same way) keeps
+its own record while you wear it: the time of your last
 orgasm, how many orgasms, and its "deny count" (how many orgasm prompts since your last orgasm didn't end
 in one, so resisted or ruined; denial and edging items don't show up there). Afterglow shows these as
-**🔒 Belt: 💦 4 · held back 2 · last orgasm 1d 3h ago** and cross-checks the time:
+**🔒 Belt: 💦 4 · held back 2 · last orgasm 1d 3h ago** and cross-checks the time. The belt starts its
+"last orgasm" at the moment it's put on, so until it sees one it shows *none since it went on 2h ago*
+and nothing is offered.
 
 - If the belt saw an orgasm **after** Afterglow's last one (on another computer without Afterglow, or
   before it loaded), Afterglow offers: *"Your belt saw an orgasm … that Afterglow didn't. Count it?"*
@@ -151,7 +154,8 @@ How it works:
   they follow you to other computers. The recent list is kept in this browser's `localStorage`
   (`Afterglow.log.<member number>`, the last 1000 events), and so is the current session
   (`Afterglow.session.<member number>`).
-- **⚙ → Reset → Reset everything** starts over from zero (it asks first).
+- **⚙ → Reset → Reset everything** starts the counts, records and recent list over from zero; your
+  settings (sharing, belt, clocks) stay. It asks first.
 
 ## Console
 

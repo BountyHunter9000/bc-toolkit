@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.1" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -738,7 +738,7 @@
 					h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial, edging or ruin item is on you: how long it's been on (🫠 for edging). Otherwise they and ✊ count how many since your last orgasm.")
 				)
 			);
-			section(out, "reset", "Reset", (o) => o.push(h("button", { title: "Start counting again from zero", onclick: resetAll }, "Reset everything"), h("div", { class: "hint" }, "Every count, record and the recent list on this account. It asks first.")));
+			section(out, "reset", "Reset", (o) => o.push(h("button", { title: "Start counting again from zero", onclick: resetAll }, "Reset everything"), h("div", { class: "hint" }, "Every count, record and the recent list on this account; your settings stay. It asks first.")));
 			return out;
 		}
 
@@ -746,7 +746,7 @@
 		function beltText() {
 			const b = state.belt.show ? beltInfo() : null;
 			if (!b) return "";
-			return `🔒 Belt: 💦 ${b.orgasms} · held back ${b.held}${b.last ? ` · last orgasm ${two(fmtSpan(Date.now() - b.last))} ago` : ""}`;
+			return `🔒 Belt: 💦 ${b.orgasms} · held back ${b.held} · ${b.last ? `last orgasm ${two(fmtSpan(Date.now() - b.last))} ago` : b.worn ? `none since it went on ${two(fmtSpan(Date.now() - b.worn))} ago` : "no orgasm yet"}`;
 		}
 		function beltOffer() {
 			if (state.belt.mode !== "ask") return null;
@@ -779,7 +779,7 @@
 					)
 				),
 				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: state.belt.show, onchange: (e) => ((state.belt.show = e.target.checked), save(), render()) }), "Show the belt's own figures"),
-				h("div", { class: "hint" }, "The game's Modular Chastity Belt notes your last orgasm while you wear it. Afterglow compares the two, so an orgasm on another computer or before it loaded isn't lost. Its \"held back\" is how many orgasm prompts didn't end in one since your last (resisted or ruined); denial and edging don't count there."),
+				h("div", { class: "hint" }, "The game's Modular Chastity Belt (and the Techno Chastity Cage) notes your last orgasm while you wear it. Afterglow compares the two, so an orgasm on another computer or before it loaded isn't lost. Its \"held back\" is how many orgasm prompts didn't end in one since your last (resisted or ruined); denial and edging don't count there."),
 				h("div", { class: "hint" }, b ? `Wearing: ${b.name}.` : "You aren't wearing one now.")
 			];
 		}
@@ -994,14 +994,20 @@
 	// While worn, the game's Modular Chastity Belt notes the time of your last orgasm (TimeSinceLastOrgasm), how many
 	// orgasms (OrgasmCount) and how many orgasm prompts didn't end in one (RuinedOrgasmCount, its "deny count"; it starts
 	// again at each orgasm). If it saw an orgasm Afterglow didn't (another computer, before installing), offer to count it.
-	const BELT = "ModularChastityBelt";
+	// The Techno Chastity Cage uses the same code. Both start "last orgasm" at the time they're put on (TimeWorn), so
+	// their time is an orgasm only when it's later than that.
+	const BELTS = ["ModularChastityBelt", "TechnoChastityCage"];
 	const BELT_SLACK_MS = 2 * 60_000; // the belt notes the time when it's next drawn: allow for that
 	function beltInfo() {
-		const it = Array.isArray(Player.Appearance) ? Player.Appearance.find((a) => a?.Asset?.Name === BELT) : null;
+		const it = Array.isArray(Player.Appearance) ? Player.Appearance.find((a) => BELTS.includes(a?.Asset?.Name)) : null;
 		if (!it) return null;
 		const p = it.Property || {};
 		const n = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : 0);
-		return { name: it.Craft?.Name || it.Asset.Description || "Modular Chastity Belt", orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: n(p.TimeSinceLastOrgasm) };
+		const worn = n(p.TimeWorn);
+		const t = n(p.TimeSinceLastOrgasm);
+		// Without TimeWorn (older items), trust the time only once it has counted an orgasm
+		const real = worn ? t > worn + 5000 : n(p.OrgasmCount) > 0;
+		return { name: it.Craft?.Name || it.Asset.Description || "Chastity belt", orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: real ? t : 0, worn };
 	}
 	// { t, kind }: "missed" (an orgasm after Afterglow's last one) or "start" (before Afterglow started counting, while
 	// it hasn't seen one yet: it can start the clock from there); null if the belt agrees
@@ -1256,7 +1262,9 @@
 
 	function resetAll() {
 		if (!window.confirm("Reset every Afterglow count, record and the recent list on this account? This can't be undone.")) return;
-		state = fresh();
+		// Start counting again; keep your choices (sharing, belt, which time the clocks count, what the tab shows)
+		const keep = { share: state.share, belt: { ...state.belt, ignored: 0 }, timeMode: state.timeMode, show: state.show };
+		state = { ...fresh(), ...keep };
 		session = newSession();
 		writeSession();
 		log = [];
