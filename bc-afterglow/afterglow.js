@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.3.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.4.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -21,6 +21,10 @@
 	const ALIVE_SAVE_MS = 10 * 60_000;
 	const AWAY_MIN_MS = 2 * 60_000;
 	const AWAY_MAX = 300;
+	// A session (the Session column, and time edged this session) carries on through reloads, reconnects and short
+	// breaks; after this long without Afterglow running, the next login starts a new one.
+	const SESSION_GAP_MS = 30 * 60_000;
+	const EDGE_TICK_MAX_MS = 5000; // a longer gap between two ticks (computer asleep, tab frozen) isn't counted as time edged
 
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.Afterglow && typeof window.Afterglow.unload === "function") window.Afterglow.unload();
@@ -35,11 +39,14 @@
 		ruined: { label: "Ruined", one: "Ruined", icon: "💔" },
 		resisted: { label: "Resisted", one: "Resisted", icon: "✊" },
 		failed: { label: "Resist failed", one: "Resist failed", icon: "😵" }, // tried to resist and came anyway: also an orgasm
-		denied: { label: "Denied", one: "Denied", icon: "⛔" },
+		denied: { label: "Denied", one: "Denied", icon: "⛔" }, // held at the edge by a denial effect (DenialMode)
+		edged: { label: "Edged", one: "Edged", icon: "🫠" }, // held at the edge by an edging effect (Edged, or an Edging craft)
 	};
 	const KIND_KEYS = Object.keys(KINDS);
-	const STREAK_KEYS = ["denied", "ruined", "resisted"]; // counted between two orgasms
-	const HELD_KEYS = ["denied", "ruined"]; // these also time how long the effect has been on you
+	const zeroCounts = () => Object.fromEntries(KIND_KEYS.map((k) => [k, 0]));
+	const STREAK_KEYS = ["denied", "edged", "ruined", "resisted"]; // counted between two orgasms
+	const BOX_KEYS = ["denied", "ruined", "resisted"]; // the small boxes (edged shares the denied one)
+	const HELD_KEYS = ["denied", "edged", "ruined"]; // these also time how long the effect has been on you
 
 	// ---------- state (with the account) ----------
 	// since: when Afterglow started counting on this account. lastOrgasmAt: the last orgasm it saw (null: none yet,
@@ -48,15 +55,18 @@
 	const fresh = () => ({
 		v: 1,
 		since: Date.now(),
-		totals: { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 },
-		base: { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 }, // from before Afterglow, entered by hand
+		totals: zeroCounts(),
+		base: zeroCounts(), // from before Afterglow, entered by hand
 		last: {},
 		lastOrgasmAt: null,
 		streakStart: Date.now(),
-		streak: { denied: 0, ruined: 0, resisted: 0 },
-		rec: { gap: null, gapOnline: null, denied: 0, ruined: 0, resisted: 0 },
+		streak: { denied: 0, edged: 0, ruined: 0, resisted: 0 },
+		rec: { gap: null, gapOnline: null, denied: 0, edged: 0, ruined: 0, resisted: 0 },
 		show: "orgasm", // what the dock tab shows: the orgasm clock, or the denied / ruined / resisted box
-		held: { denied: 0, ruined: 0 }, // since when a denial (or edging) / ruin effect has been on you, 0: none now
+		held: { denied: 0, edged: 0, ruined: 0 }, // since when a denial / edging / ruin effect has been on you, 0: none now
+		edgeMs: 0, // time edged (online, with an edging effect on you), since edgeSince
+		edgeSince: Date.now(), // when Afterglow started counting time edged, or it was last reset
+		edgeDay: { d: "", ms: 0 }, // time edged today (d: the local date it's for)
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
 		alive: 0, // the last "still here" saved with the account (every few minutes), to find time away on another device
 		away: [], // [from, to]: stretches you were away (logged out, tab closed, disconnected), newest last
@@ -78,6 +88,9 @@
 		for (const k of STREAK_KEYS) out.rec[k] = num(s.rec?.[k]);
 		if (KINDS[s.show]) out.show = s.show;
 		for (const k of HELD_KEYS) out.held[k] = num(s.held?.[k]);
+		out.edgeMs = num(s.edgeMs);
+		out.edgeSince = num(s.edgeSince, out.since);
+		if (s.edgeDay && typeof s.edgeDay.d === "string") out.edgeDay = { d: s.edgeDay.d, ms: num(s.edgeDay.ms) };
 		const gap = (g) => (g && num(g.ms) ? { ms: num(g.ms), from: num(g.from), to: num(g.to), exact: !!g.exact, ...(g.manual ? { manual: true } : {}) } : null);
 		out.rec.gap = gap(s.rec?.gap);
 		// Records from before time away was tracked: all of it counts as online
@@ -99,7 +112,7 @@
 			state = fresh();
 		}
 		log = readLog();
-		session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
+		session = readSession();
 		const before = Math.max(state.alive || 0, readAlive());
 		const now = Date.now();
 		if (before && now - before > AWAY_MIN_MS) addAway(before, now);
@@ -125,6 +138,8 @@
 		try {
 			localStorage.setItem(aliveKey(), String(now));
 		} catch {}
+		session.last = now;
+		writeSession();
 		if (force || now - aliveSavedAt >= ALIVE_SAVE_MS) {
 			aliveSavedAt = now;
 			state.alive = now;
@@ -164,12 +179,39 @@
 	// ---------- event log (this browser only) ----------
 	// [time, kind, room, how?]: for "today" and the recent list
 	let log = [];
-	let session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
+	// ---------- session (this browser) ----------
+	// Counts and time edged since this session started. Kept in localStorage so a reload, a reconnect or a short break
+	// doesn't end it: it goes on until Afterglow hasn't run for SESSION_GAP_MS.
+	const newSession = () => ({ start: Date.now(), last: Date.now(), ...zeroCounts(), edgeMs: 0 });
+	let session = newSession();
+	const sessionKey = () => `Afterglow.session.${Player.MemberNumber || 0}`;
+	function readSession() {
+		try {
+			const raw = JSON.parse(localStorage.getItem(sessionKey()) || "null");
+			if (raw && Number.isFinite(raw.last) && Date.now() - raw.last < SESSION_GAP_MS) {
+				const out = newSession();
+				for (const k of Object.keys(out)) if (Number.isFinite(raw[k]) && raw[k] >= 0) out[k] = raw[k];
+				return out;
+			}
+		} catch {}
+		return newSession();
+	}
+	function writeSession() {
+		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
+		try {
+			localStorage.setItem(sessionKey(), JSON.stringify(session));
+		} catch {}
+	}
 	const logKey = () => `Afterglow.log.${Player.MemberNumber || 0}`;
 	function readLog() {
 		try {
 			const raw = JSON.parse(localStorage.getItem(logKey()) || "[]");
-			return Array.isArray(raw) ? raw.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && (KINDS[e[1]] || e[1] === "away")).slice(-LOG_MAX) : [];
+			return Array.isArray(raw)
+				? raw
+						.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && (KINDS[e[1]] || e[1] === "away"))
+						.map((e) => (e[1] === "denied" && e[3] === "edge" ? [e[0], "edged", e[2]] : e)) // before 0.4.0, edges were denials
+						.slice(-LOG_MAX)
+				: [];
 		} catch {
 			return [];
 		}
@@ -208,10 +250,11 @@
 			if (state.streak[kind] > state.rec[kind]) state.rec[kind] = state.streak[kind];
 		}
 		// An orgasm, ruin or resist ends any spell at the edge: the next denial is a new one
-		if (kind !== "denied") dropped = true;
+		if (kind !== "denied" && kind !== "edged") dropped = true;
 		log.push(how ? [now, kind, roomName(), how] : [now, kind, roomName()]);
 		if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
 		writeLog();
+		writeSession();
 		save();
 		ui.render();
 	}
@@ -222,7 +265,7 @@
 	let dropped = true;
 	function denyHit(how) {
 		const now = Date.now();
-		if (dropped || now - denyHitAt > DENY_GAP_MS) record("denied", how);
+		if (dropped || now - denyHitAt > DENY_GAP_MS) record(how === "edge" ? "edged" : "denied");
 		denyHitAt = now;
 		dropped = false;
 	}
@@ -237,12 +280,13 @@
 		}
 	};
 	const heldNow = {
-		denied: () => (effects().includes("DenialMode") && !effects().includes("RuinOrgasms")) || edged(),
+		denied: () => effects().includes("DenialMode") && !effects().includes("RuinOrgasms"),
+		edged,
 		ruined: () => effects().includes("RuinOrgasms"),
 	};
 	// Start or stop the "held for" timers when such an item goes on or comes off. The effect list can be empty for a
 	// moment while the game redraws you, so it has to stay off a few seconds before the timer stops.
-	const offSince = { denied: 0, ruined: 0 };
+	const offSince = { denied: 0, edged: 0, ruined: 0 };
 	function checkHeld() {
 		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber || !Array.isArray(Player.Appearance) || !Player.Appearance.length) return;
 		let changed = false;
@@ -265,6 +309,41 @@
 			save();
 			ui.render();
 		}
+	}
+
+	// Time edged: while an edging effect is on you and you're connected, add up the time between ticks. A long gap
+	// between two ticks (asleep, frozen tab, disconnected) isn't counted. Saved with the account every minute, and the session every 10 seconds.
+	const dayKey = () => new Date().toDateString();
+	let edgeTickAt = 0;
+	let edgeSavedAt = 0;
+	let edgeSessionAt = 0;
+	function addEdgeTime() {
+		const now = Date.now();
+		const dt = edgeTickAt ? now - edgeTickAt : 0;
+		edgeTickAt = now;
+		// The effect itself, not the timer (which waits a few seconds before it stops)
+		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber || !connected() || !state.held.edged || !edged()) return;
+		if (dt <= 0 || dt > EDGE_TICK_MAX_MS) return;
+		state.edgeMs += dt;
+		if (state.edgeDay.d !== dayKey()) state.edgeDay = { d: dayKey(), ms: 0 };
+		state.edgeDay.ms += dt;
+		session.edgeMs += dt;
+		if (now - edgeSessionAt >= 10_000) {
+			edgeSessionAt = now;
+			writeSession();
+		}
+		if (now - edgeSavedAt >= 60_000) {
+			edgeSavedAt = now;
+			save();
+		}
+	}
+	const edgeToday = () => (state.edgeDay.d === dayKey() ? state.edgeDay.ms : 0);
+	function resetEdgeTime() {
+		if (!window.confirm("Reset the all-time total for time edged? Today's and this session's time edged are kept.")) return;
+		state.edgeMs = 0;
+		state.edgeSince = Date.now();
+		save();
+		ui.render();
 	}
 
 	const isMe = (C) => !!C && (typeof C.IsPlayer === "function" ? C.IsPlayer() : C === Player);
@@ -336,7 +415,7 @@
 	function todayCounts() {
 		const start = new Date();
 		start.setHours(0, 0, 0, 0);
-		const out = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
+		const out = zeroCounts();
 		for (const e of log)
 			if (e[0] >= start.getTime() && e[1] in out) {
 				out[e[1]]++;
@@ -352,14 +431,25 @@
 		if (k === "orgasm") return { t: state.streakStart, exact: !!state.lastOrgasmAt };
 		return state.last[k] ? { t: state.last[k], exact: true } : null;
 	}
+	const edgeText = (ms) => (ms < 1000 ? "—" : ms < 60_000 ? `${Math.floor(ms / 1000)}s` : two(fmtSpan(ms)));
 	const two = (span) => span.split(" ").slice(0, 2).join(" "); // the two largest units: "1d 2h", "4h 0m", "25m 3s"
 	// The big text of a box. Orgasm: time since the last one. Denied / ruined: how long the item has been on you while
 	// one is, otherwise how many this stretch. Resisted: how many this stretch.
 	// short: the dock tab's summary line.
+	// The denied box also stands for edged: while an edging effect is on you it times that.
+	const boxHeld = (k) => (k === "denied" ? (state.held.edged ? "edged" : state.held.denied ? "denied" : null) : state.held[k] ? k : null);
 	function clockText(k, short = false) {
 		if (k === "orgasm") {
 			const x = sinceFor(k);
 			return `${x.exact ? "" : "≥ "}${fmtSpan(elapsed(x.t))}${short ? " since last orgasm" : ""}`;
+		}
+		if (k === "denied") {
+			const on = boxHeld(k);
+			if (on) {
+				const span = two(fmtSpan(elapsed(state.held[on])));
+				return short ? `${KINDS[on].icon} ${on === "edged" ? "edged" : "held"} ${span} · ${state.streak[on]} ${KINDS[on].label.toLowerCase()}` : span;
+			}
+			return short ? `⛔ ${state.streak.denied} denied · 🫠 ${state.streak.edged} edged this stretch` : String(state.streak.denied);
 		}
 		if (state.held[k]) {
 			const span = two(fmtSpan(elapsed(state.held[k])));
@@ -410,6 +500,7 @@
 #ag-body th,#ag-body td{padding:2px 3px;text-align:right;font-weight:400}
 #ag-body th{color:var(--bcd-muted,#a99fc0);font-size:10px;text-transform:uppercase}
 #ag-body td:first-child,#ag-body th:first-child{text-align:left}
+#ag-body td+td{white-space:nowrap}
 #ag-body tr+tr td{border-top:1px solid var(--bcd-line-soft,#2f2a3a)}
 #ag-body details{margin:4px 0}
 #ag-body summary{cursor:pointer;color:var(--bcd-muted,#a99fc0);font-size:11px}
@@ -465,12 +556,20 @@
 							: `🏆 Longest without${state.timeMode === "online" ? " (online)" : ""}: ${g.exact ? "" : "≥ "}${fmtSpan(g.ms)} ${g.manual ? "(entered by hand)" : `(${fmtDay(g.from)} → ${fmtDay(g.to)})`}`
 						: "🏆 Your longest stretch shows here after your first orgasm."
 				),
-				h("div", { class: "ag-clocks" }, STREAK_KEYS.map(clockCell)),
+				h("div", { class: "ag-clocks" }, BOX_KEYS.map(clockCell)),
 				h(
 					"table",
 					{},
-					h("tr", {}, h("th", {}, ""), h("th", {}, "Session"), h("th", {}, "Today"), h("th", {}, "All")),
-					KIND_KEYS.map((k) => h("tr", {}, h("td", {}, `${KINDS[k].icon} ${KINDS[k].label}`), h("td", {}, session[k]), h("td", {}, today[k]), h("td", { title: state.base[k] ? `${state.totals[k]} counted + ${state.base[k]} from before` : null }, allTime(k))))
+					h("tr", {}, h("th", {}, ""), h("th", { title: `Since ${fmtWhen(session.start)}. A session carries on through reloads, reconnects and breaks shorter than ${SESSION_GAP_MS / 60_000} minutes.` }, "Session"), h("th", {}, "Today"), h("th", {}, "All")),
+					KIND_KEYS.map((k) => h("tr", {}, h("td", {}, `${KINDS[k].icon} ${KINDS[k].label}`), h("td", {}, session[k]), h("td", {}, today[k]), h("td", { title: state.base[k] ? `${state.totals[k]} counted + ${state.base[k]} from before` : null }, allTime(k)))),
+					h(
+						"tr",
+						{ title: `Time online with an edging effect on you. All: since ${fmtWhen(state.edgeSince)} (reset it under More).` },
+						h("td", {}, "🫠 Time edged"),
+						h("td", { "data-ag-edge": "session" }, edgeText(session.edgeMs)),
+						h("td", { "data-ag-edge": "today" }, edgeText(edgeToday())),
+						h("td", { "data-ag-edge": "all" }, edgeText(state.edgeMs))
+					)
 				),
 				h("div", { class: "hint", "data-ag": "game", title: "The number under the game's arousal meter when you zoom in on it. The game saves it when you leave its Preferences screen and with arousal updates in chat rooms, so it can lag behind or start at 0." }, gameCountText()),
 				h(
@@ -497,9 +596,11 @@
 					{ ontoggle: (e) => (openMore = e.target.open), open: openMore },
 					h("summary", {}, "More"),
 					h("div", { class: "hint" }, `Counting since ${fmtWhen(state.since)}. Counts and records go with your account; the recent list stays in this browser.`),
-					h("div", { class: "hint" }, "Denied: held at the edge by a denial or edging effect. A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
+					h("div", { class: "hint" }, "⛔ Denied: held at the edge by a denial effect. 🫠 Edged: held there by an edging effect (an Edged item or an Edging craft). A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
 				h("div", { class: "hint" }, "😵 Resist failed: you started resisting but the time ran out and you came. It's counted as an orgasm too."),
-				h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial (or edging) or ruin item is on you: how long it's been on. Otherwise they and ✊ count how many since your last orgasm."),
+				h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial, edging or ruin item is on you: how long it's been on (🫠 for edging). Otherwise they and ✊ count how many since your last orgasm."),
+				h("div", { class: "hint" }, `Time edged counts only while you're online. All time: since ${fmtWhen(state.edgeSince)}.`),
+				h("button", { title: "Start the all-time total for time edged again from zero", onclick: resetEdgeTime }, "Reset time edged"),
 					h(
 						"label",
 						{ class: "ag-row", title: "Time away: logged out, the game closed, or disconnected (noticed at your next login, to within a minute)" },
@@ -532,23 +633,26 @@
 		function clockCell(k) {
 			const big = k === "orgasm";
 			const pinned = k === state.show;
-			const held = !big && state.held[k];
+			const on = big ? null : boxHeld(k);
+			const held = !!on;
 			const x = big ? sinceFor(k) : null;
 			const other = big ? otherTime(x.t) : "";
 			const lastTxt = state.last[k] ? `last ${fmtWhen(state.last[k])}` : `none yet`;
 			const sub = big
 				? (state.lastOrgasmAt ? `Last one ${fmtWhen(state.lastOrgasmAt)}` : `None seen since Afterglow started counting (${fmtWhen(state.since)})`) + (other ? ` · ${other}` : "")
 				: held
-					? `${state.streak[k]} now · rec ${state.rec[k]}`
+					? `${state.streak[on]} now · rec ${state.rec[on]}`
 					: k === "resisted"
 						? `rec ${state.rec[k]} · ${KINDS.failed.icon} ${allTime("failed")}`
-						: `rec ${state.rec[k]}`;
-			const what = { denied: "a denial or edging item", ruined: "a ruin item" }[k];
+						: k === "denied"
+							? `rec ${state.rec.denied} · 🫠 ${state.streak.edged}`
+							: `rec ${state.rec[k]}`;
+			const what = { denied: "a denial item", edged: "an edging item", ruined: "a ruin item" }[on || k];
 			const title = big
 				? `Time since your last orgasm${state.timeMode === "online" ? ", online" : ""}${other ? `; ${other}` : ""}.`
 				: held
-					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[k])}. ${state.streak[k]} ${KINDS[k].label.toLowerCase()} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.`
-					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${what ? ` While ${what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
+					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[on])}. ${state.streak[on]} ${KINDS[on].label.toLowerCase()} since your last orgasm; the most in one stretch: ${state.rec[on]}.${on === "edged" ? ` Time edged: ${edgeText(session.edgeMs)} this session, ${edgeText(state.edgeMs)} in all.` : ""}`
+					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${k === "denied" ? ` 🫠 Edged since your last orgasm: ${state.streak.edged} (the most in one stretch: ${state.rec.edged}).` : ""}${what ? ` While ${k === "denied" ? "a denial or edging item" : what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
 			return h(
 				"div",
 				{
@@ -556,7 +660,7 @@
 					title: `${title}${pinned ? " Shown on the dock tab." : " Click to show it on the dock tab."}`,
 					onclick: () => ((state.show = k), save(), render()),
 				},
-				h("div", { class: "ag-k" }, big ? `${KINDS[k].icon} Since last orgasm${pinned ? " 📌" : ""}` : `${KINDS[k].icon} ${held ? "Held" : KINDS[k].label}${pinned ? " 📌" : ""}`),
+				h("div", { class: "ag-k" }, big ? `${KINDS[k].icon} Since last orgasm${pinned ? " 📌" : ""}` : `${KINDS[on || k].icon} ${on === "edged" ? "Edged" : held ? "Held" : KINDS[k].label}${pinned ? " 📌" : ""}`),
 				h("div", { class: "ag-t", "data-ag-clock": k }, clockText(k)),
 				h("div", { class: "ag-sub" }, sub)
 			);
@@ -612,6 +716,11 @@
 				const t = clockText(el.dataset.agClock);
 				if (el.textContent !== t) el.textContent = t;
 			}
+			const edge = { session: session.edgeMs, today: edgeToday(), all: state.edgeMs };
+			for (const el of root?.querySelectorAll("[data-ag-edge]") || []) {
+				const t = edgeText(edge[el.dataset.agEdge]);
+				if (el.textContent !== t) el.textContent = t;
+			}
 			const gc = root?.querySelector('[data-ag="game"]');
 			if (gc && gc.textContent !== gameCountText()) gc.textContent = gameCountText();
 			// Passing the record redraws the record line
@@ -625,7 +734,8 @@
 	function resetAll() {
 		if (!window.confirm("Reset every Afterglow count, record and the recent list on this account? This can't be undone.")) return;
 		state = fresh();
-		session = { orgasm: 0, ruined: 0, resisted: 0, failed: 0, denied: 0 };
+		session = newSession();
+		writeSession();
 		log = [];
 		writeLog();
 		save();
@@ -637,9 +747,10 @@
 		const g = recGap();
 		return (
 			`✨ ${state.lastOrgasmAt ? "" : "≥ "}${sinceText()}${state.timeMode === "online" ? " online" : ""} since last orgasm` +
-			` · this stretch: ${state.streak.denied} denied, ${state.streak.ruined} ruined, ${state.streak.resisted} resisted` +
+			` · this stretch: ${state.streak.denied} denied, ${state.streak.edged} edged, ${state.streak.ruined} ruined, ${state.streak.resisted} resisted` +
 			(g ? ` · longest: ${g.exact ? "" : "≥ "}${fmtSpan(g.ms)}` : "") +
-			` · all: ${allTime("orgasm")} orgasms, ${allTime("denied")} denied, ${allTime("resisted")} resisted, ${allTime("failed")} failed resists`
+			` · all: ${allTime("orgasm")} orgasms, ${allTime("denied")} denied, ${allTime("edged")} edged, ${allTime("resisted")} resisted, ${allTime("failed")} failed resists` +
+			(state.edgeMs >= 60_000 ? ` · time edged: ${edgeText(session.edgeMs)} this session, ${edgeText(state.edgeMs)} in all` : "")
 		);
 	}
 	const COMMAND = {
@@ -675,9 +786,11 @@
 		}
 		if ((Player.ArousalSettings?.Progress ?? 0) < DENY_DROP) dropped = true;
 		safely(checkHeld);
+		safely(addEdgeTime);
 		if (loadedFor && Player.MemberNumber === loadedFor && connected()) {
 			// Back after a disconnect, or the computer slept, without a new login: that silence was time away too
 			if (aliveAt && Date.now() - aliveAt > AWAY_MIN_MS + ALIVE_EVERY_MS) {
+				if (Date.now() - aliveAt > SESSION_GAP_MS) session = newSession(); // a long break (overnight sleep): a new session
 				addAway(aliveAt, Date.now());
 				markAlive(true);
 				ui.render();
@@ -685,6 +798,9 @@
 		}
 		ui.tick();
 	}, 1000);
+
+	const onLeave = () => writeSession();
+	window.addEventListener("pagehide", onLeave);
 
 	window.Afterglow = {
 		version: MOD_INFO.version,
@@ -694,6 +810,7 @@
 		stats: statsLine,
 		unload() {
 			clearInterval(tickTimer);
+			window.removeEventListener("pagehide", onLeave);
 			clearTimeout(saveTimer);
 			ui.unmount();
 			mod.unload();

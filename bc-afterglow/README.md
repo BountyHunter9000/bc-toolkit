@@ -12,18 +12,23 @@ tab's summary shows the time since your last orgasm, or whichever clock you pick
 - **The time since your last orgasm**: the big clock, with when it was.
 - **Three small boxes** below it: ⛔ denied, 💔 ruined and ✊ resisted. Each counts how many since your
   last orgasm, with the record for one stretch ("rec 7").
-  - While a denial (or edging) item is on you, ⛔ turns into a timer: **Held** for how long it's been on,
-    with the count underneath. 💔 does the same while a ruin item is on you. They go back to counts when
-    the item comes off.
+  - The ⛔ box covers edging too: under the denials it shows 🫠, how many times you've been edged.
+  - While a denial item is on you, ⛔ turns into a timer: **Held** for how long it's been on, with the
+    count underneath. With an edging item it's 🫠 **Edged** instead. 💔 does the same while a ruin item
+    is on you. They go back to counts when the item comes off.
   - ✊ is always a count. Under it, 😵 is how many times (all time) you tried to resist and came anyway.
 - Click the big clock or a box to show it on the dock tab's summary (it gets a highlighted border, 📌).
   The time since your last orgasm is the default.
 - **🏆 Longest without**: your record stretch between two orgasms, with its dates. While the current
   stretch is longer, it says you've passed your record.
-- **Counts** of orgasms, ruined, resisted, failed resists and denied for this session, today and all time, plus the
-  game's own lifetime orgasm count for your character: the number under its arousal meter when you
-  zoom in on it. The game saves that number only when you leave its Preferences screen and with
-  arousal updates in chat rooms, so it can lag behind or read 0; Afterglow's own counts don't depend on it.
+- **Counts** of orgasms, ruined, resisted, failed resists, denied and edged for this session, today and all
+  time.
+- **🫠 Time edged**: how long you've had an edging item on while online, for this session, today and all
+  time. The all-time total can be reset on its own (**More → Reset time edged**).
+- **The game's own count**: the lifetime orgasm count for your character, the number under its arousal
+  meter when you zoom in on it. The game saves that number only when you leave its Preferences screen
+  and with arousal updates in chat rooms, so it can lag behind or read 0; Afterglow's own counts don't
+  depend on it.
 - **Recent**: the latest events with their time and room, and ⏸ stretches you were away.
 - `/afterglow stats` writes a one-line summary into your chat that only you see.
 
@@ -37,11 +42,19 @@ Afterglow watches the game's own orgasm functions:
 | 💔 **Ruined** | an orgasm is ruined (a ruin effect, e.g. some belts and vibrators) |
 | ✊ **Resisted** | you win the game's resist mini-game |
 | 😵 **Resist failed** | you start the resist mini-game but its time runs out and you orgasm (also counted as an orgasm) |
-| ⛔ **Denied** | full arousal is held at the edge by a denial or edging effect instead of an orgasm |
+| ⛔ **Denied** | full arousal is held at the edge (99%) by a denial effect instead of an orgasm |
+| 🫠 **Edged** | full arousal is held at the edge (95%) by an edging effect: an item that edges, or a crafted item with the Edging property |
 
-The game keeps asking while you're held at the edge, so one spell there counts as one denial: it counts
+The game keeps asking while you're held at the edge, so one spell there counts once: it counts
 again after a minute without being stopped, or once your arousal has dropped below 90% and come back.
 Nothing counts if your arousal is turned off in the game's settings.
+
+Before 0.4.0, edges were counted as denials. In Recent and Today they now show as edged, but the
+all-time denied total from before then still includes them.
+
+A **session** is your current stretch of play. It carries on through reloads, disconnects and breaks
+shorter than 30 minutes; after a longer break (logged out, game closed, computer asleep) the next one
+starts fresh. Time edged counts only while you're online and connected.
 
 Afterglow only counts what happens while it's running, so the first stretch starts when you install it
 and shows as **≥** (at least that long) until your first orgasm after that.
@@ -71,7 +84,8 @@ current stretch there; and your longest stretch without one so far, kept as the 
 - It never sends anything to the room or to anyone; `/afterglow stats` is a local line only you see.
 - Counts, records and the current stretch are saved in your account's `ExtensionSettings.Afterglow`, so
   they follow you to other computers. The recent list is kept in this browser's `localStorage`
-  (`Afterglow.log.<member number>`, the last 1000 events).
+  (`Afterglow.log.<member number>`, the last 1000 events), and so is the current session
+  (`Afterglow.session.<member number>`).
 - **More → Reset everything** starts over from zero (it asks first).
 
 ## Console
