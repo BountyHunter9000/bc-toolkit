@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.13.0" };
+	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.13.1" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -292,9 +292,12 @@
 			const craft = item.Craft && typeof item.Craft === "object" ? item.Craft : null;
 			const craftFx = craft && CRAFT_FX.includes(craft.Property) ? craft.Property : "";
 			const edgeFx = fx.filter((e) => EDGE_FX.includes(e));
-			// The Modular Chastity Belt keeps its own record of the wearer's orgasms (only while worn)
+			// The Modular Chastity Belt and Techno Chastity Cage keep their own record of the wearer's orgasms (only while
+			// worn). "Last orgasm" starts at the time it was put on (TimeWorn): only later than that is it a real one.
 			const n = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : 0);
-			const belt = a.Name === "ModularChastityBelt" ? { orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: n(p.TimeSinceLastOrgasm) } : null;
+			const worn = n(p.TimeWorn);
+			const real = worn ? n(p.TimeSinceLastOrgasm) > worn + 5000 : n(p.OrgasmCount) > 0;
+			const belt = ["ModularChastityBelt", "TechnoChastityCage"].includes(a.Name) ? { orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: real ? n(p.TimeSinceLastOrgasm) : 0, worn } : null;
 			if (!vibrates && !edgeFx.length && !craftFx && !belt) continue;
 			const level = typeof p.Intensity === "number" && p.Intensity >= -1 && p.Intensity <= 3 ? Math.round(p.Intensity) : null;
 			out.push({
@@ -2524,7 +2527,7 @@
 						? h(
 								"div",
 								{ title: "The belt's own record while worn: orgasms, and orgasm prompts since the last one that didn't end in one (resisted or ruined)" },
-								`📋 Belt: 💦 ${it.belt.orgasms} · held back ${it.belt.held}${it.belt.last ? ` · last orgasm ${agoText(Date.now() - it.belt.last)} ago` : ""}`
+								`📋 Belt: 💦 ${it.belt.orgasms} · held back ${it.belt.held} · ${it.belt.last ? `last orgasm ${agoText(Date.now() - it.belt.last)} ago` : it.belt.worn ? `none since it went on ${agoText(Date.now() - it.belt.worn)} ago` : "no orgasm yet"}`
 							)
 						: null,
 					it.lock ? h("div", { class: "hint" }, `${it.lock}${it.lockBy ? ` · by ${nameOf(it.lockBy)}` : ""}`) : null
