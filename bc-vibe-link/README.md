@@ -261,6 +261,22 @@ turns it off and **Clear** empties it.
 Programs and recordings need Vibe Link 0.11.0 or newer on the other side; for someone on an older
 version they're greyed out. A recording sent to someone else is thinned to 240 points on the way.
 
+## Inspect
+
+The **Inspect** tab shows what's buzzing, or holding someone at the edge, right now. It works without
+Intiface or a toy. Pick **You** or anyone in the room:
+
+- Their arousal, and whether they're ⛔ denied, 🫠 edged or 💔 having orgasms ruined, or free to finish.
+  For you it uses the game's own edging check: you only count as edged when every vibrator on a zone you
+  can orgasm from edges, and it says so when only some do.
+- Each vibrator, and each item that edges, denies or ruins:
+  - its slot and name, and its crafted name if it has one;
+  - its mode (Random, Escalate, Tease, Deny, Edge…; hover for what it does) and the strength it's at now;
+  - 🫠 edging, ⛔ denial or 💔 ruin, and a crafted Edging, Arousing or Dull property;
+  - its lock, who locked it, and when a timer lock opens.
+
+It updates live and only reads what the game already shows everyone. Nothing is sent.
+
 ## Rules
 
 Bondage Club's add-on rules ask scripts not to affect other players without their consent:

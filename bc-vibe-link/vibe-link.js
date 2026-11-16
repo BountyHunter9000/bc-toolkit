@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.11.0" };
+	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.12.0" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -253,6 +253,61 @@
 		const i = item?.Property?.Intensity;
 		return { item, level: typeof i === "number" && i >= 0 && i <= 3 ? Math.round(i) : -1 };
 	}
+
+	// ---------- inspect: what someone wears that vibrates or holds them at the edge (read only) ----------
+	const EDGE_FX = ["Edged", "DenialMode", "RuinOrgasms"];
+	const FX_TEXT = { Edged: "🫠 edging", DenialMode: "⛔ denial", RuinOrgasms: "💔 ruins orgasms" };
+	const CRAFT_FX = ["Edging", "Arousing", "Dull"]; // crafted properties that change orgasms
+	const MODE_TEXT = {
+		Random: "Random: changes strength at random",
+		Escalate: "Escalate: builds up step by step",
+		Tease: "Tease: comes and goes",
+		Deny: "Deny: stops short of letting you finish (edging)",
+		Edge: "Edge: keeps you at the edge (edging)",
+	};
+	const lockText = (p) => {
+		if (!p?.LockedBy) return "";
+		const name = String(p.LockedBy).replace(/Padlock$/, "").replace(/([a-z])([A-Z])/g, "$1 $2").trim() || "Padlock";
+		const left = Number(p.RemoveTimer) > Date.now() ? ` · opens in ${fmtLeft(p.RemoveTimer - Date.now())}` : "";
+		return `🔒 ${name} lock${left}`;
+	};
+	const fmtLeft = (ms) => {
+		const m = Math.ceil(ms / 60_000);
+		return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+	};
+	/** The items that matter for arousal on a character: vibrating, edging/denial/ruin, or crafted to change orgasms */
+	function inspectItems(C) {
+		const out = [];
+		for (const item of Array.isArray(C?.Appearance) ? C.Appearance : []) {
+			const a = item?.Asset;
+			if (!a || a.Group?.Category !== "Item") continue;
+			const p = item.Property || {};
+			const fx = [...new Set([...(Array.isArray(a.Effect) ? a.Effect : []), ...(Array.isArray(p.Effect) ? p.Effect : [])])];
+			const has = (list) => Array.isArray(list) && list.includes("Vibrating");
+			const vibrates = a.Archetype === "vibrating" || has(a.AllowEffect) || has(a.Effect) || has(p.Effect);
+			const craft = item.Craft && typeof item.Craft === "object" ? item.Craft : null;
+			const craftFx = craft && CRAFT_FX.includes(craft.Property) ? craft.Property : "";
+			const edgeFx = fx.filter((e) => EDGE_FX.includes(e));
+			if (!vibrates && !edgeFx.length && !craftFx) continue;
+			const level = typeof p.Intensity === "number" && p.Intensity >= -1 && p.Intensity <= 3 ? Math.round(p.Intensity) : null;
+			out.push({
+				slot: a.Group?.Description || a.Group?.Name || "",
+				group: a.Group?.Name || "",
+				name: a.Description || a.Name || "Item",
+				craftName: craft?.Name || "",
+				mode: typeof p.Mode === "string" ? p.Mode : "",
+				level,
+				vibrates,
+				fx: edgeFx,
+				craftFx,
+				lock: lockText(p),
+				lockBy: Number(p.LockMemberNumber) || 0,
+			});
+		}
+		return out.sort((x, y) => x.slot.localeCompare(y.slot));
+	}
+	// Changes whenever anything shown on the Inspect tab would change (except arousal, updated in place)
+	const inspectSig = (C) => (C ? `${C.MemberNumber}|${(C.Effect || []).filter((e) => EDGE_FX.includes(e)).join(",")}|${inspectItems(C).map((i) => `${i.group}:${i.name}:${i.mode}:${i.level}:${i.fx}:${i.craftFx}:${i.lock}`).join("|")}` : "");
 
 	// ---------- buttplug.io client (JSON protocol, message version 3) ----------
 
@@ -2217,6 +2272,10 @@
 #vl-body .row{display:flex;align-items:center;gap:4px;margin:3px 0;flex-wrap:wrap}
 #vl-body .row select,#vl-body .row input[type=text]{flex:1;min-width:0}
 #vl-body .hint{color:#999;font-size:11px;margin:2px 0}
+#vl-body .vl-insp-sum{margin:3px 0 4px;font-size:11px}
+#vl-body .vl-insp{margin:3px 0;padding:3px 5px;border:1px solid var(--bcd-line-soft,#352f42);border-radius:5px;font-size:11px}
+#vl-body .vl-insp.on{border-color:var(--bcd-hi,#9a5cc8)}
+#vl-body .vl-insp-t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #vl-body .warn{color:#fc6;font-size:11px;margin:4px 0;padding:4px 6px;border:1px solid #a84;border-radius:6px;background:#3a2c18}
 #vl-body .err{color:#f99;font-size:12px}
 #vl-body input[type=text],#vl-body input[type=number],#vl-body select{font:inherit;color:#eee;background:var(--bcd-ctl,#2a2633);border:1px solid var(--bcd-ctl-line,#5a5070);border-radius:5px;padding:2px 4px}
@@ -2402,6 +2461,64 @@
 			}
 		}
 
+		// Inspect tab: pick yourself or someone in the room, and see their vibrators (mode, strength), anything
+		// edging, denying or ruining, crafted properties and locks. Read only: it sends nothing and changes nothing.
+		let inspectWho = null; // member number; null: you
+		const inspectChar = () => (inspectWho == null || isSelf(inspectWho) ? (loggedIn() ? Player : null) : charOf(inspectWho));
+		const arousalText = (C) => {
+			const a = C?.ArousalSettings;
+			if (!a || a.Active === "Inactive") return "Arousal off";
+			return `Arousal ${Math.round(Number(a.Progress) || 0)}%`;
+		};
+		function secInspect(out) {
+			const others = rcInRoom() ? ChatRoomCharacter.filter((c) => c && !isSelf(c.MemberNumber)) : [];
+			if (inspectWho != null && !isSelf(inspectWho) && !charOf(inspectWho)) inspectWho = null;
+			out.push(
+				h(
+					"label",
+					{ class: "row" },
+					"Who ",
+					h(
+						"select",
+						{ onchange: (e) => ((inspectWho = e.target.value ? Number(e.target.value) : null), render()) },
+						h("option", { value: "", selected: inspectWho == null }, "You"),
+						others.map((c) => h("option", { value: String(c.MemberNumber), selected: inspectWho === c.MemberNumber }, `${nameOf(c.MemberNumber)} (#${c.MemberNumber})`))
+					)
+				)
+			);
+			const C = inspectChar();
+			if (!C) return out.push(h("div", { class: "hint" }, "Not logged in."));
+			const fx = (C.Effect || []).filter((e) => EDGE_FX.includes(e));
+			// The game counts you as edged only if every vibrator on a zone you can orgasm from edges (IsEdged); others: the effect
+			const edgedNow = C === Player && typeof Player.IsEdged === "function" ? Player.IsEdged() : fx.includes("Edged");
+			const held = [fx.includes("DenialMode") && !fx.includes("RuinOrgasms") && "⛔ Denied", edgedNow && "🫠 Edged", fx.includes("RuinOrgasms") && "💔 Ruins orgasms"].filter(Boolean);
+			out.push(
+				h(
+					"div",
+					{ class: "vl-insp-sum" },
+					h("span", { "data-insp-arousal": "" }, arousalText(C)),
+					held.length ? ` · ${held.join(" · ")}` : fx.includes("Edged") && C === Player ? " · 🫠 partly edged (not every vibrator edges)" : " · free to finish"
+				)
+			);
+			const items = inspectItems(C);
+			if (!items.length) out.push(h("div", { class: "hint" }, "No vibrators or edging, denial or ruin items."));
+			for (const it of items) {
+				const lvl = it.level == null ? "" : LEVEL_NAMES[it.level + 1];
+				const modeLine = !it.vibrates ? "" : it.mode && !LEVEL_NAMES.includes(it.mode) && it.mode !== "Maximum" ? `${it.mode} · now ${lvl || "?"}` : lvl || it.mode || "";
+				out.push(
+					h(
+						"div",
+						{ class: `vl-insp${it.level > -1 ? " on" : ""}` },
+						h("div", { class: "vl-insp-t" }, h("b", {}, it.slot), " ", it.craftName ? `“${it.craftName}” (${it.name})` : it.name),
+						modeLine ? h("div", { title: MODE_TEXT[it.mode] || "" }, `〰 ${modeLine}`) : null,
+						it.fx.length || it.craftFx ? h("div", {}, [...it.fx.map((e) => FX_TEXT[e]), it.craftFx && `✂ crafted ${it.craftFx}`].filter(Boolean).join(" · ")) : null,
+						it.lock ? h("div", { class: "hint" }, `${it.lock}${it.lockBy ? ` · by ${nameOf(it.lockBy)}` : ""}`) : null
+					)
+				);
+			}
+			out.push(h("div", { class: "hint" }, "Read only: what the game shows everyone. Nothing is sent."));
+		}
+
 		// Two views keep the panel small: Toys (what you use while playing) and Settings (everything else)
 		let view = "toys";
 		function renderBody() {
@@ -2411,11 +2528,14 @@
 					{ class: "vl-tabs" },
 					h("button", { class: view === "toys" ? "act" : "", onclick: () => ((view = "toys"), render()) }, "Toys"),
 					h("button", { class: view === "remote" ? "act" : "", onclick: () => ((view = "remote"), render()) }, asks.size ? `Remote (${asks.size})` : "Remote"),
+					h("button", { class: view === "inspect" ? "act" : "", title: "What's buzzing or holding someone at the edge right now (works without Intiface)", onclick: () => ((view = "inspect"), render()) }, "Inspect"),
 					h("button", { class: view === "settings" ? "act" : "", onclick: () => ((view = "settings"), render()) }, "⚙")
 				),
 			];
 			if (view === "remote") {
 				secRemote(out);
+			} else if (view === "inspect") {
+				secInspect(out);
 			} else if (view === "settings") {
 				section(out, "conn", "Connection", (o) => (secConnection(o), secRemember(o)));
 				section(out, "toys", "Toys", secToyConfig);
@@ -3673,6 +3793,8 @@
 		let lastVisible = null;
 		let lastWorn = null;
 		let wornCheckAt = 0;
+		let inspectCheckAt = 0;
+		let lastInspect = "";
 		function tick() {
 			if (!panel) return;
 			const vis = loggedIn();
@@ -3695,6 +3817,17 @@
 					if (lastWorn != null) render();
 					lastWorn = sig;
 				}
+			}
+			if (view === "inspect" && now - inspectCheckAt > 1000) {
+				inspectCheckAt = now;
+				const C = inspectChar();
+				const sig = inspectSig(C);
+				if (sig !== lastInspect && !(document.activeElement?.tagName === "SELECT" && root.contains(document.activeElement))) {
+					lastInspect = sig;
+					render();
+				}
+				const ar = root.querySelector("[data-insp-arousal]");
+				if (ar && C && ar.textContent !== arousalText(C)) ar.textContent = arousalText(C);
 			}
 			for (const el of root.querySelectorAll("[data-rc-status]")) {
 				const c = controlling.get(Number(el.dataset.rcStatus));
