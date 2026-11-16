@@ -16,6 +16,9 @@ tab's summary shows the time since your last orgasm, or whichever clock you pick
   - While a denial item is on you, ⛔ turns into a timer: **Held** for how long it's been on, with the
     count underneath. With an edging item it's 🫠 **Edged** instead. 💔 does the same while a ruin item
     is on you. They go back to counts when the item comes off.
+  - Under the boxes, a line names the items doing it, for example "⛔ Polished Chastity Belt (Pelvis) ·
+    🫠 Vibrating Egg (Vulva, Edge mode)". For a full look at every vibrator, see Vibe Link's
+    [Inspect](../bc-vibe-link/README.md#inspect) tab.
   - ✊ is always a count. Under it, 😵 is how many times (all time) you tried to resist and came anyway.
 - Click the big clock or a box to show it on the dock tab's summary (it gets a highlighted border, 📌).
   The time since your last orgasm is the default.

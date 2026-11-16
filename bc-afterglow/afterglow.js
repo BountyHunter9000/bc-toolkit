@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.4.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.5.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -311,6 +311,33 @@
 		}
 	}
 
+	// Which items cause it: denial (DenialMode), edging (Edged, or crafted Edging) and ruin (RuinOrgasms)
+	const CAUSE = { denied: "DenialMode", edged: "Edged", ruined: "RuinOrgasms" };
+	function causes(k) {
+		const out = [];
+		for (const item of Array.isArray(Player.Appearance) ? Player.Appearance : []) {
+			const a = item?.Asset;
+			if (!a || a.Group?.Category !== "Item") continue;
+			const p = item.Property || {};
+			const fx = [...(Array.isArray(a.Effect) ? a.Effect : []), ...(Array.isArray(p.Effect) ? p.Effect : [])];
+			const crafted = k === "edged" && item.Craft?.Property === "Edging";
+			if (!fx.includes(CAUSE[k]) && !crafted) continue;
+			const name = item.Craft?.Name || a.Description || a.Name || "Item";
+			const extra = [a.Group?.Description || a.Group?.Name, typeof p.Mode === "string" && ["Deny", "Edge", "Tease", "Random", "Escalate"].includes(p.Mode) ? `${p.Mode} mode` : "", crafted ? "crafted Edging" : ""].filter(Boolean);
+			out.push(`${name}${extra.length ? ` (${extra.join(", ")})` : ""}`);
+		}
+		return out;
+	}
+	// "⛔ Polished Chastity Belt (Pelvis) · 🫠 Vibrating Egg (Vulva, Edge mode)": what's holding you right now
+	const causeText = () =>
+		HELD_KEYS.filter((k) => state.held[k])
+			.map((k) => {
+				const c = causes(k);
+				return c.length ? `${KINDS[k].icon} ${c.join(", ")}` : "";
+			})
+			.filter(Boolean)
+			.join(" · ");
+
 	// Time edged: while an edging effect is on you and you're connected, add up the time between ticks. A long gap
 	// between two ticks (asleep, frozen tab, disconnected) isn't counted. Saved with the account every minute, and the session every 10 seconds.
 	const dayKey = () => new Date().toDateString();
@@ -557,6 +584,7 @@
 						: "🏆 Your longest stretch shows here after your first orgasm."
 				),
 				h("div", { class: "ag-clocks" }, BOX_KEYS.map(clockCell)),
+				h("div", { class: "hint ag-cause", "data-ag": "cause", title: "The items doing it right now" }, causeText()),
 				h(
 					"table",
 					{},
@@ -651,7 +679,7 @@
 			const title = big
 				? `Time since your last orgasm${state.timeMode === "online" ? ", online" : ""}${other ? `; ${other}` : ""}.`
 				: held
-					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[on])}. ${state.streak[on]} ${KINDS[on].label.toLowerCase()} since your last orgasm; the most in one stretch: ${state.rec[on]}.${on === "edged" ? ` Time edged: ${edgeText(session.edgeMs)} this session, ${edgeText(state.edgeMs)} in all.` : ""}`
+					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[on])}${causes(on).length ? `: ${causes(on).join(", ")}` : ""}. ${state.streak[on]} ${KINDS[on].label.toLowerCase()} since your last orgasm; the most in one stretch: ${state.rec[on]}.${on === "edged" ? ` Time edged: ${edgeText(session.edgeMs)} this session, ${edgeText(state.edgeMs)} in all.` : ""}`
 					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${k === "denied" ? ` 🫠 Edged since your last orgasm: ${state.streak.edged} (the most in one stretch: ${state.rec.edged}).` : ""}${what ? ` While ${k === "denied" ? "a denial or edging item" : what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
 			return h(
 				"div",
@@ -720,6 +748,11 @@
 			for (const el of root?.querySelectorAll("[data-ag-edge]") || []) {
 				const t = edgeText(edge[el.dataset.agEdge]);
 				if (el.textContent !== t) el.textContent = t;
+			}
+			const cause = root?.querySelector('[data-ag="cause"]');
+			if (cause) {
+				const t = causeText();
+				if (cause.textContent !== t) cause.textContent = t;
 			}
 			const gc = root?.querySelector('[data-ag="game"]');
 			if (gc && gc.textContent !== gameCountText()) gc.textContent = gameCountText();
