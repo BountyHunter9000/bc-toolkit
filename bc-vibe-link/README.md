@@ -274,6 +274,8 @@ Intiface or a toy. Pick **You** or anyone in the room:
   - its mode (Random, Escalate, Tease, Deny, Edge…; hover for what it does) and the strength it's at now;
   - 🫠 edging, ⛔ denial or 💔 ruin, and a crafted Edging, Arousing or Dull property;
   - its lock, who locked it, and when a timer lock opens.
+- A Modular Chastity Belt also shows its own record: orgasms while worn, how many orgasm prompts since
+  the last one didn't end in one ("held back"), and how long since the last orgasm.
 
 It updates live and only reads what the game already shows everyone. Nothing is sent.
 

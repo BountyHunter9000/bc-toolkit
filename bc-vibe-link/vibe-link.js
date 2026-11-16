@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.12.0" };
+	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.13.0" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -271,6 +271,10 @@
 		const left = Number(p.RemoveTimer) > Date.now() ? ` · opens in ${fmtLeft(p.RemoveTimer - Date.now())}` : "";
 		return `🔒 ${name} lock${left}`;
 	};
+	const agoText = (ms) => {
+		const m = Math.max(0, Math.floor(ms / 60_000));
+		return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
+	};
 	const fmtLeft = (ms) => {
 		const m = Math.ceil(ms / 60_000);
 		return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
@@ -288,7 +292,10 @@
 			const craft = item.Craft && typeof item.Craft === "object" ? item.Craft : null;
 			const craftFx = craft && CRAFT_FX.includes(craft.Property) ? craft.Property : "";
 			const edgeFx = fx.filter((e) => EDGE_FX.includes(e));
-			if (!vibrates && !edgeFx.length && !craftFx) continue;
+			// The Modular Chastity Belt keeps its own record of the wearer's orgasms (only while worn)
+			const n = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : 0);
+			const belt = a.Name === "ModularChastityBelt" ? { orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: n(p.TimeSinceLastOrgasm) } : null;
+			if (!vibrates && !edgeFx.length && !craftFx && !belt) continue;
 			const level = typeof p.Intensity === "number" && p.Intensity >= -1 && p.Intensity <= 3 ? Math.round(p.Intensity) : null;
 			out.push({
 				slot: a.Group?.Description || a.Group?.Name || "",
@@ -302,12 +309,13 @@
 				craftFx,
 				lock: lockText(p),
 				lockBy: Number(p.LockMemberNumber) || 0,
+				belt,
 			});
 		}
 		return out.sort((x, y) => x.slot.localeCompare(y.slot));
 	}
 	// Changes whenever anything shown on the Inspect tab would change (except arousal, updated in place)
-	const inspectSig = (C) => (C ? `${C.MemberNumber}|${(C.Effect || []).filter((e) => EDGE_FX.includes(e)).join(",")}|${inspectItems(C).map((i) => `${i.group}:${i.name}:${i.mode}:${i.level}:${i.fx}:${i.craftFx}:${i.lock}`).join("|")}` : "");
+	const inspectSig = (C) => (C ? `${C.MemberNumber}|${(C.Effect || []).filter((e) => EDGE_FX.includes(e)).join(",")}|${inspectItems(C).map((i) => `${i.group}:${i.name}:${i.mode}:${i.level}:${i.fx}:${i.craftFx}:${i.lock}:${i.belt ? `${i.belt.orgasms}/${i.belt.held}/${i.belt.last}` : ""}`).join("|")}` : "");
 
 	// ---------- buttplug.io client (JSON protocol, message version 3) ----------
 
@@ -2471,7 +2479,7 @@
 			return `Arousal ${Math.round(Number(a.Progress) || 0)}%`;
 		};
 		function secInspect(out) {
-			const others = rcInRoom() ? ChatRoomCharacter.filter((c) => c && !isSelf(c.MemberNumber)) : [];
+			const others = rcInRoom() && typeof ChatRoomCharacter !== "undefined" && Array.isArray(ChatRoomCharacter) ? ChatRoomCharacter.filter((c) => c && !isSelf(c.MemberNumber)) : [];
 			if (inspectWho != null && !isSelf(inspectWho) && !charOf(inspectWho)) inspectWho = null;
 			out.push(
 				h(
@@ -2512,7 +2520,14 @@
 						h("div", { class: "vl-insp-t" }, h("b", {}, it.slot), " ", it.craftName ? `“${it.craftName}” (${it.name})` : it.name),
 						modeLine ? h("div", { title: MODE_TEXT[it.mode] || "" }, `〰 ${modeLine}`) : null,
 						it.fx.length || it.craftFx ? h("div", {}, [...it.fx.map((e) => FX_TEXT[e]), it.craftFx && `✂ crafted ${it.craftFx}`].filter(Boolean).join(" · ")) : null,
-						it.lock ? h("div", { class: "hint" }, `${it.lock}${it.lockBy ? ` · by ${nameOf(it.lockBy)}` : ""}`) : null
+						it.belt
+						? h(
+								"div",
+								{ title: "The belt's own record while worn: orgasms, and orgasm prompts since the last one that didn't end in one (resisted or ruined)" },
+								`📋 Belt: 💦 ${it.belt.orgasms} · held back ${it.belt.held}${it.belt.last ? ` · last orgasm ${agoText(Date.now() - it.belt.last)} ago` : ""}`
+							)
+						: null,
+					it.lock ? h("div", { class: "hint" }, `${it.lock}${it.lockBy ? ` · by ${nameOf(it.lockBy)}` : ""}`) : null
 					)
 				);
 			}
