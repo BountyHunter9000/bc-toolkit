@@ -3,12 +3,13 @@
 // Afterglow for Bondage Club
 // Keeps count of your orgasms, ruined orgasms, resisted orgasms and denials, the time since your last orgasm, and
 // your records: the longest you've gone without one, and the most denials (ruins, resists) between two.
-// It only watches the game's own orgasm functions (ModSDK hooks that call the game first and change nothing) and
-// never sends anything. Counts and records go with your account; the event log stays in this browser.
+// It only watches the game's own orgasm functions (ModSDK hooks that call the game first and change nothing).
+// It sends nothing unless you share: then, only to someone the game's own permissions let see them, and only
+// when their Afterglow asks. Counts and records go with your account; the event log stays in this browser.
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.5.0" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -70,6 +71,13 @@
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
 		alive: 0, // the last "still here" saved with the account (every few minutes), to find time away on another device
 		away: [], // [from, to]: stretches you were away (logged out, tab closed, disconnected), newest last
+		// Sharing. Each part: "item" (whoever the game lets use items on you), a level 0-5 from the game's own ladder
+		// (0 everyone ... 5 owner only), or "none". Blacklist and ghost list never see anything.
+		share: { on: false, counts: "item", records: "item", held: 4, look: true },
+		// The game's Modular Chastity Belt keeps its own "time since last orgasm": cross-check with it while you wear it.
+		// mode: "ask" (offer to count an orgasm it saw and Afterglow didn't), "auto" (count it), "off". ignored: a belt
+		// time you said no to.
+		belt: { mode: "ask", show: true, ignored: 0 },
 	});
 	let state = fresh();
 	let loadedFor = null;
@@ -97,6 +105,11 @@
 		out.rec.gapOnline = s.rec && "gapOnline" in s.rec ? gap(s.rec.gapOnline) : out.rec.gap && { ...out.rec.gap };
 		if (s.timeMode === "online") out.timeMode = "online";
 		out.alive = num(s.alive);
+		const lvl = (v, d) => (v === "item" || v === "none" ? v : Number.isInteger(v) && v >= 0 && v <= 5 ? v : d);
+		if (s.belt && typeof s.belt === "object")
+			out.belt = { mode: ["ask", "auto", "off"].includes(s.belt.mode) ? s.belt.mode : "ask", show: s.belt.show !== false, ignored: num(s.belt.ignored) };
+		if (s.share && typeof s.share === "object")
+			out.share = { on: !!s.share.on, counts: lvl(s.share.counts, "item"), records: lvl(s.share.records, "item"), held: lvl(s.share.held, 4), look: s.share.look !== false };
 		out.away = (Array.isArray(s.away) ? s.away : [])
 			.filter((a) => Array.isArray(a) && num(a[0]) && num(a[1]) > num(a[0]))
 			.map((a) => [num(a[0]), num(a[1])])
@@ -167,13 +180,19 @@
 	const elapsed = (t, mode = state.timeMode) => Math.max(0, Date.now() - t - (mode === "online" ? awayBetween(t, Date.now()) : 0));
 	const recGap = () => (state.timeMode === "online" ? state.rec.gapOnline : state.rec.gap);
 	let saveTimer = null;
-	function save() {
+	let dirty = false;
+	function saveNow() {
 		clearTimeout(saveTimer);
-		saveTimer = setTimeout(() => {
-			if (!Player.ExtensionSettings || !Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
-			Player.ExtensionSettings[SETTINGS_KEY] = LZString.compressToUTF16(JSON.stringify(state));
-			if (typeof ServerPlayerExtensionSettingsSync === "function") ServerPlayerExtensionSettingsSync(SETTINGS_KEY);
-		}, 1500);
+		saveTimer = null;
+		if (!Player.ExtensionSettings || !Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
+		dirty = false;
+		Player.ExtensionSettings[SETTINGS_KEY] = LZString.compressToUTF16(JSON.stringify(state));
+		if (typeof ServerPlayerExtensionSettingsSync === "function") ServerPlayerExtensionSettingsSync(SETTINGS_KEY);
+	}
+	function save() {
+		dirty = true;
+		clearTimeout(saveTimer);
+		saveTimer = setTimeout(saveNow, 1500);
 	}
 
 	// ---------- event log (this browser only) ----------
@@ -257,6 +276,7 @@
 		writeSession();
 		save();
 		ui.render();
+		pushShares();
 	}
 
 	// Denial and edging hold you at the edge, and the game asks again every time the meter refills, so one spell at
@@ -308,6 +328,7 @@
 		if (changed) {
 			save();
 			ui.render();
+			pushShares();
 		}
 	}
 
@@ -355,6 +376,7 @@
 		if (state.edgeDay.d !== dayKey()) state.edgeDay = { d: dayKey(), ms: 0 };
 		state.edgeDay.ms += dt;
 		session.edgeMs += dt;
+		dirty = true;
 		if (now - edgeSessionAt >= 10_000) {
 			edgeSessionAt = now;
 			writeSession();
@@ -542,12 +564,24 @@
 #ag-body .ag-grid{display:grid;grid-template-columns:1fr 1fr;gap:3px 6px;margin:3px 0}
 #ag-body .ag-grid label{display:flex;justify-content:space-between;align-items:center;gap:4px;font-size:11px}
 #ag-body .ag-row{display:flex;align-items:center;gap:4px;margin:3px 0;font-size:11px;flex-wrap:wrap}
+#ag-body .ag-row select{max-width:100%}
+#ag-body .ag-tabs{display:flex;gap:3px;margin:0 0 4px}
+#ag-body .ag-tabs button{flex:1;padding:2px 0}
+#ag-body .ag-tabs button.act{background:var(--bcd-line,#6b4f85);border-color:var(--bcd-hi,#9a7bb8)}
+#ag-body .ag-sec{display:flex;gap:4px;align-items:center;width:100%;margin:3px 0 0;text-align:left;font-weight:600}
+#ag-body .ag-sec.open{border-bottom-left-radius:0;border-bottom-right-radius:0;background:var(--bcd-tab-act,#2c2638)}
+#ag-body .ag-sec-a{width:1em;color:var(--bcd-muted,#a99fc0)}
+#ag-body .ag-sec-body{padding:4px 6px;border:1px solid var(--bcd-line-soft,#352f42);border-top:0;border-radius:0 0 5px 5px;margin:0 0 3px}
+#ag-body .ag-offer{margin:4px 0;padding:4px 6px;border:1px solid var(--bcd-hi,#9a5cc8);border-radius:5px;background:var(--bcd-tab-act,#3b2350);font-size:11px}
+#ag-body .ag-share{margin:4px 0;padding:4px 6px;border:1px solid var(--bcd-line-soft,#352f42);border-radius:5px;font-size:11px}
+#ag-body .ag-share .ag-t{font-weight:700;font-variant-numeric:tabular-nums;color:var(--bcd-accent,#e7b6ff);font-size:14px}
+#ag-body .ag-share .ag-held{color:#ffb3a6}
 `;
 		function mount() {
 			if (panel) return;
 			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader), so there's no panel");
 			document.head.append(h("style", { id: "ag-style" }, CSS));
-			panel = BCDock.add({ id: "afterglow", title: "Afterglow", icon: "✨", order: 40, version: MOD_INFO.version, width: 220, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => render() });
+			panel = BCDock.add({ id: "afterglow", title: "Afterglow", icon: "✨", order: 40, version: MOD_INFO.version, width: 220, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => (panel?.isOpen() && lookNow(), render()) });
 			root = panel.body;
 			root.id = "ag-body";
 			render();
@@ -571,64 +605,113 @@
 			const beating = !g || cur > g.ms;
 			const today = todayCounts();
 			const arousalOff = Player.ArousalSettings && Player.ArousalSettings.Active === "Inactive";
+			const nShared = sharedList().length;
+			const tab = (key, label, title) => h("button", { class: view === key ? "act" : "", title, onclick: () => ((view = key), key === "shared" && lookNow(), render()) }, label);
 			const parts = [
-				arousalOff ? h("div", { class: "hint" }, "Your arousal is turned off in the game's settings, so there's nothing to count.") : null,
-				clockCell("orgasm"),
-				h(
-					"div",
-					{ class: `ag-rec${beating && g ? " new" : ""}`, "data-ag": "rec" },
-					g
-						? beating
-							? `🏆 Longest yet: you've passed your record of ${fmtSpan(g.ms)}${state.timeMode === "online" ? " online" : ""}`
-							: `🏆 Longest without${state.timeMode === "online" ? " (online)" : ""}: ${g.exact ? "" : "≥ "}${fmtSpan(g.ms)} ${g.manual ? "(entered by hand)" : `(${fmtDay(g.from)} → ${fmtDay(g.to)})`}`
-						: "🏆 Your longest stretch shows here after your first orgasm."
-				),
-				h("div", { class: "ag-clocks" }, BOX_KEYS.map(clockCell)),
-				h("div", { class: "hint ag-cause", "data-ag": "cause", title: "The items doing it right now" }, causeText()),
-				h(
-					"table",
-					{},
-					h("tr", {}, h("th", {}, ""), h("th", { title: `Since ${fmtWhen(session.start)}. A session carries on through reloads, reconnects and breaks shorter than ${SESSION_GAP_MS / 60_000} minutes.` }, "Session"), h("th", {}, "Today"), h("th", {}, "All")),
-					KIND_KEYS.map((k) => h("tr", {}, h("td", {}, `${KINDS[k].icon} ${KINDS[k].label}`), h("td", {}, session[k]), h("td", {}, today[k]), h("td", { title: state.base[k] ? `${state.totals[k]} counted + ${state.base[k]} from before` : null }, allTime(k)))),
-					h(
-						"tr",
-						{ title: `Time online with an edging effect on you. All: since ${fmtWhen(state.edgeSince)} (reset it under More).` },
-						h("td", {}, "🫠 Time edged"),
-						h("td", { "data-ag-edge": "session" }, edgeText(session.edgeMs)),
-						h("td", { "data-ag-edge": "today" }, edgeText(edgeToday())),
-						h("td", { "data-ag-edge": "all" }, edgeText(state.edgeMs))
-					)
-				),
-				h("div", { class: "hint", "data-ag": "game", title: "The number under the game's arousal meter when you zoom in on it. The game saves it when you leave its Preferences screen and with arousal updates in chat rooms, so it can lag behind or start at 0." }, gameCountText()),
-				h(
-					"details",
-					{ ontoggle: (e) => (openLog = e.target.open), open: openLog },
-					h("summary", {}, `Recent (${log.length})`),
+				h("div", { class: "ag-tabs" }, tab("stats", "Stats"), tab("shared", nShared ? `Shared (${nShared})` : "Shared", "What people in the room share with you"), tab("settings", "⚙", "Settings")),
+			];
+			if (view === "shared") parts.push(...sharedView());
+			else if (view === "settings") parts.push(...settingsView());
+			else
+				parts.push(
+					arousalOff ? h("div", { class: "hint" }, "Your arousal is turned off in the game's settings, so there's nothing to count.") : null,
+					beltOffer(),
+					clockCell("orgasm"),
 					h(
 						"div",
-						{ class: "ag-log" },
-						log.length
-							? log
-									.slice(-50)
-									.reverse()
-									.map((e) =>
-										e[1] === "away"
-											? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(e[3])}`)
-											: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : e[3] === "failed" ? ` (${KINDS.failed.icon} resist failed)` : ""}${e[2] ? ` in ${e[2]}` : ""}`)
-									)
-							: h("div", { class: "hint" }, "Nothing yet.")
+						{ class: `ag-rec${beating && g ? " new" : ""}`, "data-ag": "rec" },
+						g
+							? beating
+								? `🏆 Longest yet: you've passed your record of ${fmtSpan(g.ms)}${state.timeMode === "online" ? " online" : ""}`
+								: `🏆 Longest without${state.timeMode === "online" ? " (online)" : ""}: ${g.exact ? "" : "≥ "}${fmtSpan(g.ms)} ${g.manual ? "(entered by hand)" : `(${fmtDay(g.from)} → ${fmtDay(g.to)})`}`
+							: "🏆 Your longest stretch shows here after your first orgasm."
+					),
+					h("div", { class: "ag-clocks" }, BOX_KEYS.map(clockCell)),
+					h("div", { class: "hint ag-cause", "data-ag": "cause", title: "The items doing it right now" }, causeText()),
+					h(
+						"table",
+						{},
+						h("tr", {}, h("th", {}, ""), h("th", { title: `Since ${fmtWhen(session.start)}. A session carries on through reloads, reconnects and breaks shorter than ${SESSION_GAP_MS / 60_000} minutes.` }, "Session"), h("th", {}, "Today"), h("th", {}, "All")),
+						KIND_KEYS.map((k) => h("tr", {}, h("td", {}, `${KINDS[k].icon} ${KINDS[k].label}`), h("td", {}, session[k]), h("td", {}, today[k]), h("td", { title: state.base[k] ? `${state.totals[k]} counted + ${state.base[k]} from before` : null }, allTime(k)))),
+						h(
+							"tr",
+							{ title: `Time online with an edging effect on you. All: since ${fmtWhen(state.edgeSince)} (reset it in ⚙ → Clocks).` },
+							h("td", {}, "🫠 Time edged"),
+							h("td", { "data-ag-edge": "session" }, edgeText(session.edgeMs)),
+							h("td", { "data-ag-edge": "today" }, edgeText(edgeToday())),
+							h("td", { "data-ag-edge": "all" }, edgeText(state.edgeMs))
+						)
+					),
+					h("div", { class: "hint", "data-ag": "belt", title: "Your Modular Chastity Belt's own record (it only counts while you wear it)" }, beltText()),
+					h("div", { class: "hint", "data-ag": "game", title: "The number under the game's arousal meter when you zoom in on it. The game saves it when you leave its Preferences screen and with arousal updates in chat rooms, so it can lag behind or start at 0." }, gameCountText()),
+					h(
+						"details",
+						{ ontoggle: (e) => (openLog = e.target.open), open: openLog },
+						h("summary", {}, `Recent (${log.length})`),
+						h(
+							"div",
+							{ class: "ag-log" },
+							log.length
+								? log
+										.slice(-50)
+										.reverse()
+										.map((e) =>
+											e[1] === "away"
+												? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(e[3])}`)
+												: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : e[3] === "failed" ? ` (${KINDS.failed.icon} resist failed)` : e[3] === "belt" ? " (seen by your belt)" : ""}${e[2] ? ` in ${e[2]}` : ""}`)
+										)
+								: h("div", { class: "hint" }, "Nothing yet.")
+						)
 					)
-				),
+				);
+			root.replaceChildren(...parts.filter(Boolean));
+		}
+
+		// ---------- views ----------
+		let view = "stats";
+		// Settings sections fold away; which are open is remembered in this browser (Sharing starts open)
+		const uiKey = () => `Afterglow.ui.${Player.MemberNumber || 0}`;
+		let secOpen = null;
+		const readSecOpen = () => {
+			if (secOpen) return secOpen;
+			try {
+				secOpen = JSON.parse(localStorage.getItem(uiKey()) || "null") || {};
+			} catch {
+				secOpen = {};
+			}
+			return secOpen;
+		};
+		function section(out, key, title, fill) {
+			const open = readSecOpen()[key] ?? key === "share";
+			out.push(
 				h(
-					"details",
-					{ ontoggle: (e) => (openMore = e.target.open), open: openMore },
-					h("summary", {}, "More"),
-					h("div", { class: "hint" }, `Counting since ${fmtWhen(state.since)}. Counts and records go with your account; the recent list stays in this browser.`),
-					h("div", { class: "hint" }, "⛔ Denied: held at the edge by a denial effect. 🫠 Edged: held there by an edging effect (an Edged item or an Edging craft). A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
-				h("div", { class: "hint" }, "😵 Resist failed: you started resisting but the time ran out and you came. It's counted as an orgasm too."),
-				h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial, edging or ruin item is on you: how long it's been on (🫠 for edging). Otherwise they and ✊ count how many since your last orgasm."),
-				h("div", { class: "hint" }, `Time edged counts only while you're online. All time: since ${fmtWhen(state.edgeSince)}.`),
-				h("button", { title: "Start the all-time total for time edged again from zero", onclick: resetEdgeTime }, "Reset time edged"),
+					"button",
+					{
+						class: `ag-sec${open ? " open" : ""}`,
+						"aria-expanded": open ? "true" : "false",
+						onclick: () => {
+							secOpen[key] = !open;
+							try {
+								localStorage.setItem(uiKey(), JSON.stringify(secOpen));
+							} catch {}
+							render();
+						},
+					},
+					h("span", { class: "ag-sec-a" }, open ? "▾" : "▸"),
+					title
+				)
+			);
+			if (open) {
+				const inner = [];
+				fill(inner);
+				out.push(h("div", { class: "ag-sec-body" }, inner));
+			}
+		}
+		function settingsView() {
+			const out = [];
+			section(out, "share", "Sharing", (o) => o.push(...shareForm()));
+			section(out, "clocks", "Clocks", (o) =>
+				o.push(
 					h(
 						"label",
 						{ class: "ag-row", title: "Time away: logged out, the game closed, or disconnected (noticed at your next login, to within a minute)" },
@@ -640,15 +723,142 @@
 							h("option", { value: "online", selected: state.timeMode === "online" }, "only time online")
 						)
 					),
-					h("div", { class: "hint" }, "Time away (logged out, game closed, disconnected) is noticed at your next login and listed in Recent as ⏸. It's tracked from this version on."),
-					startForm(),
-					h("button", { title: "Start counting again from zero", onclick: resetAll }, "Reset everything")
+					h("div", { class: "hint" }, "Time away (logged out, game closed, disconnected) is noticed at your next login and listed in Recent as ⏸."),
+					h("div", { class: "hint" }, `Time edged counts only while you're online. All time: since ${fmtWhen(state.edgeSince)}.`),
+					h("button", { title: "Start the all-time total for time edged again from zero", onclick: resetEdgeTime }, "Reset time edged")
+				)
+			);
+			section(out, "belt", "Chastity belt", (o) => o.push(...beltForm()));
+			section(out, "before", "From before Afterglow", (o) => o.push(startForm()));
+			section(out, "about", "What counts as what", (o) =>
+				o.push(
+					h("div", { class: "hint" }, `Counting since ${fmtWhen(state.since)}. Counts and records go with your account; the recent list stays in this browser.`),
+					h("div", { class: "hint" }, "⛔ Denied: held at the edge by a denial effect. 🫠 Edged: held there by an edging effect (an Edged item or an Edging craft). A spell at the edge counts once (again after a minute's break, or after arousal drops)."),
+					h("div", { class: "hint" }, "😵 Resist failed: you started resisting but the time ran out and you came. It's counted as an orgasm too."),
+					h("div", { class: "hint" }, "⛔ and 💔 show a timer while a denial, edging or ruin item is on you: how long it's been on (🫠 for edging). Otherwise they and ✊ count how many since your last orgasm.")
+				)
+			);
+			section(out, "reset", "Reset", (o) => o.push(h("button", { title: "Start counting again from zero", onclick: resetAll }, "Reset everything"), h("div", { class: "hint" }, "Every count, record and the recent list on this account. It asks first.")));
+			return out;
+		}
+
+		// The belt: its own figures on the Stats view, and an offer when it saw an orgasm Afterglow didn't
+		function beltText() {
+			const b = state.belt.show ? beltInfo() : null;
+			if (!b) return "";
+			return `🔒 Belt: 💦 ${b.orgasms} · held back ${b.held}${b.last ? ` · last orgasm ${two(fmtSpan(Date.now() - b.last))} ago` : ""}`;
+		}
+		function beltOffer() {
+			if (state.belt.mode !== "ask") return null;
+			const x = beltNews();
+			if (!x) return null;
+			const text =
+				x.kind === "start"
+					? `Your belt last saw you orgasm ${fmtWhen(x.t)}, before Afterglow started counting. Start the clock from then?`
+					: `Your belt saw an orgasm ${fmtWhen(x.t)} that Afterglow didn't (another computer, or before it loaded). Count it?`;
+			return h(
+				"div",
+				{ class: "ag-offer" },
+				h("div", {}, `🔒 ${text}`),
+				h("div", { class: "ag-row" }, h("button", { onclick: () => beltApply(x) }, x.kind === "start" ? "Start from then" : "Count it"), h("button", { onclick: () => beltIgnore(x) }, "No"))
+			);
+		}
+		function beltForm() {
+			const b = beltInfo();
+			return [
+				h(
+					"label",
+					{ class: "ag-row", title: "When your belt saw an orgasm Afterglow didn't" },
+					"Belt saw one I didn't",
+					h(
+						"select",
+						{ onchange: (e) => ((state.belt.mode = e.target.value), save(), render()) },
+						h("option", { value: "ask", selected: state.belt.mode === "ask" }, "ask me"),
+						h("option", { value: "auto", selected: state.belt.mode === "auto" }, "count it"),
+						h("option", { value: "off", selected: state.belt.mode === "off" }, "ignore")
+					)
 				),
+				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: state.belt.show, onchange: (e) => ((state.belt.show = e.target.checked), save(), render()) }), "Show the belt's own figures"),
+				h("div", { class: "hint" }, "The game's Modular Chastity Belt notes your last orgasm while you wear it. Afterglow compares the two, so an orgasm on another computer or before it loaded isn't lost. Its \"held back\" is how many orgasm prompts didn't end in one since your last (resisted or ruined); denial and edging don't count there."),
+				h("div", { class: "hint" }, b ? `Wearing: ${b.name}.` : "You aren't wearing one now.")
 			];
-			root.replaceChildren(...parts.filter(Boolean));
 		}
 		let openLog = false;
-		let openMore = false;
+
+		// What people in the room share with you: one card each, clocks kept running by tick
+		const ago = (x) => Date.now() - x.at; // since their message arrived
+		const sharedList = () => [...shared].filter(([m]) => charOf(m));
+		function sharedView() {
+			const list = sharedList();
+			if (!state.share.look) return [h("div", { class: "hint" }, "Looking for what others share is off (⚙ → Sharing).")];
+			if (!inRoom()) return [h("div", { class: "hint" }, "Join a room to see what people there share with you.")];
+			if (!list.length) return [h("div", { class: "hint" }, "Nobody in this room shares with you yet. Only people with Afterglow can, and only if their permissions let you see.")];
+			return list.map(([m, x]) => sharedCard(m, x));
+		}
+		function sharedCard(m, x) {
+			const d = x.d;
+			const c = d.counts;
+			const r = d.records;
+			const held = d.held ? HELD_KEYS.filter((k) => d.held[k]) : [];
+			const line = (o) => KIND_KEYS.filter((k) => o[k]).map((k) => `${KINDS[k].icon} ${o[k]}`).join(" · ") || "none";
+			return h(
+				"div",
+				{ class: "ag-share", title: `Shared by ${nameOf(m)}'s Afterglow. Only what their permissions let you see.` },
+				h("div", { class: "ag-k" }, `${nameOf(m)} (#${m})`),
+				c ? h("div", {}, h("span", { class: "ag-t", "data-sh-since": String(m) }, sharedSince(x)), " since last orgasm") : null,
+				c ? h("div", {}, `This stretch: ⛔ ${c.streak.denied || 0} · 🫠 ${c.streak.edged || 0} · 💔 ${c.streak.ruined || 0} · ✊ ${c.streak.resisted || 0}`) : null,
+				held.map((k) => h("div", { class: "ag-held", "data-sh-held": `${m}|${k}` }, sharedHeld(x, k))),
+				r
+					? h(
+							"div",
+							{},
+							`🏆 ${r.gap ? `${r.gap.exact ? "" : "≥ "}${fmtSpan(r.gap.ms)}${r.online ? " online" : ""}` : "no record yet"}` +
+								(r.edge.all >= 1000 ? ` · 🫠 time edged ${edgeText(r.edge.session)} session, ${edgeText(r.edge.all)} all` : "")
+						)
+					: null,
+				c ? h("div", { class: "hint" }, `Today: ${line(c.today)}`) : null,
+				c ? h("div", { class: "hint" }, `All: ${line(c.all)}`) : null
+			);
+		}
+		const sharedSince = (x) => `${x.d.counts.exact ? "" : "≥ "}${fmtSpan(x.d.counts.since + ago(x))}`;
+		const sharedHeld = (x, k) => {
+			const hd = x.d.held[k];
+			const label = { denied: "⛔ Denied", edged: "🫠 Edged", ruined: "💔 Ruin item on" }[k];
+			return `${label} ${two(fmtSpan(hd.age + ago(x)))}${hd.items?.length ? `: ${hd.items.join(", ")}` : ""}`;
+		};
+
+		// More → Sharing: who may see what, on the game's own permission ladder
+		function shareForm() {
+			const sh = state.share;
+			const pick = (key, title) =>
+				h(
+					"label",
+					{ class: "ag-row", title },
+					h("span", {}, { counts: "Clocks and counts", records: "Records, time edged", held: "Held now, which items" }[key]),
+					h(
+						"select",
+						{ disabled: !sh.on, onchange: (e) => ((sh[key] = e.target.value === "item" || e.target.value === "none" ? e.target.value : Number(e.target.value)), save(), render(), shareSettingsChanged()) },
+						LEVELS.map(([v, label]) => h("option", { value: String(v), selected: sh[key] === v }, label))
+					)
+				);
+			const permName = (LEVELS.find(([v]) => v === Number(Player.AllowedInteractions ?? Player.ItemPermission ?? 2)) || [0, "?"])[1];
+			const viewers = inRoom() ? ChatRoomCharacter.filter((c) => c && c.MemberNumber !== Player.MemberNumber && ["counts", "records", "held"].some((k) => allowedAt(c, sh[k]))) : [];
+			return [
+				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: sh.on, onchange: (e) => ((sh.on = e.target.checked), save(), render(), shareSettingsChanged()) }), "Share my stats"),
+				pick("counts", "The clocks and the counts table"),
+				pick("records", "Your longest stretch, the records for one stretch, and time edged"),
+				pick("held", "Whether a denial, edging or ruin item is on you right now, and which"),
+				h("div", { class: "hint" }, `Your item permission in the game: ${permName}. Your blacklist and ghost list never see anything.`),
+				sh.on ? h("div", { class: "hint" }, viewers.length ? `In this room, ${viewers.map((c) => nameOf(c.MemberNumber)).join(", ")} can see some of it (if they have Afterglow).` : "Nobody in this room can see anything.") : null,
+				h(
+					"label",
+					{ class: "ag-row", title: "When you open Afterglow in a room, ask everyone there (one hidden message each, to them only) whether they share with you" },
+					h("input", { type: "checkbox", checked: sh.look, onchange: (e) => ((sh.look = e.target.checked), save(), render()) }),
+					"Show what others share with me"
+				),
+				h("div", { class: "hint" }, "Asking and answering use hidden messages sent to one person only, never to the room. Only someone with Afterglow can read them."),
+			];
+		}
 		// The other way of counting, when it differs by more than a minute: "1d 4h online" or "2d 3h in all"
 		function otherTime(t) {
 			const away = awayBetween(t, Date.now());
@@ -726,8 +936,7 @@
 			};
 			return h(
 				"div",
-				{ class: "ag-start" },
-				h("div", { class: "ag-k" }, "From before Afterglow"),
+				{},
 				h("div", { class: "ag-grid" }, totals.map(([k, el]) => h("label", { title: el.title }, `${KINDS[k].icon} ${KINDS[k].label}`, el))),
 				h("label", { class: "ag-row" }, "Last orgasm", last),
 				h("label", { class: "ag-row", title: "Your longest stretch without an orgasm before Afterglow. A longer one Afterglow sees replaces it." }, "Longest without", recD, "d", recH, "h"),
@@ -754,6 +963,23 @@
 				const t = causeText();
 				if (cause.textContent !== t) cause.textContent = t;
 			}
+			for (const el of root?.querySelectorAll("[data-sh-since]") || []) {
+				const x = shared.get(Number(el.dataset.shSince));
+				if (x?.d.counts) {
+					const t = sharedSince(x);
+					if (el.textContent !== t) el.textContent = t;
+				}
+			}
+			for (const el of root?.querySelectorAll("[data-sh-held]") || []) {
+				const [m, k] = el.dataset.shHeld.split("|");
+				const x = shared.get(Number(m));
+				if (x?.d.held?.[k]) {
+					const t = sharedHeld(x, k);
+					if (el.textContent !== t) el.textContent = t;
+				}
+			}
+			const bl = root?.querySelector('[data-ag="belt"]');
+			if (bl && bl.textContent !== beltText()) bl.textContent = beltText();
 			const gc = root?.querySelector('[data-ag="game"]');
 			if (gc && gc.textContent !== gameCountText()) gc.textContent = gameCountText();
 			// Passing the record redraws the record line
@@ -761,8 +987,272 @@
 			const rec = root?.querySelector('[data-ag="rec"]');
 			if (rec && g && elapsed(state.streakStart) > g.ms && !rec.classList.contains("new")) render();
 		}
-		return { mount, unmount, render, tick, open: () => (panel?.open(), render()) };
+		return { mount, unmount, render, tick, isOpen: () => !!panel?.isOpen(), open: () => (panel?.open(), lookNow(), render()) };
 	})();
+
+	// ---------- the Modular Chastity Belt's own record ----------
+	// While worn, the game's Modular Chastity Belt notes the time of your last orgasm (TimeSinceLastOrgasm), how many
+	// orgasms (OrgasmCount) and how many orgasm prompts didn't end in one (RuinedOrgasmCount, its "deny count"; it starts
+	// again at each orgasm). If it saw an orgasm Afterglow didn't (another computer, before installing), offer to count it.
+	const BELT = "ModularChastityBelt";
+	const BELT_SLACK_MS = 2 * 60_000; // the belt notes the time when it's next drawn: allow for that
+	function beltInfo() {
+		const it = Array.isArray(Player.Appearance) ? Player.Appearance.find((a) => a?.Asset?.Name === BELT) : null;
+		if (!it) return null;
+		const p = it.Property || {};
+		const n = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : 0);
+		return { name: it.Craft?.Name || it.Asset.Description || "Modular Chastity Belt", orgasms: n(p.OrgasmCount), held: n(p.RuinedOrgasmCount), last: n(p.TimeSinceLastOrgasm) };
+	}
+	// { t, kind }: "missed" (an orgasm after Afterglow's last one) or "start" (before Afterglow started counting, while
+	// it hasn't seen one yet: it can start the clock from there); null if the belt agrees
+	function beltNews() {
+		const b = beltInfo();
+		if (!b || !b.last || b.last > Date.now() + 60_000 || b.last === state.belt.ignored) return null;
+		const known = state.lastOrgasmAt;
+		if (known) return b.last > known + BELT_SLACK_MS ? { t: b.last, kind: "missed" } : null;
+		return b.last < state.since ? { t: b.last, kind: "start" } : { t: b.last, kind: "missed" };
+	}
+	function beltApply(x) {
+		if (!x) return;
+		state.belt.ignored = x.t;
+		if (x.kind === "start") {
+			state.lastOrgasmAt = x.t;
+			state.streakStart = x.t;
+		} else {
+			// An orgasm at x.t: it ends the stretch then (a record if it's the longest), and counts
+			const gap = x.t - state.streakStart;
+			if (gap > 0) {
+				const online = gap - awayBetween(state.streakStart, x.t);
+				const span = { from: state.streakStart, to: x.t, exact: !!state.lastOrgasmAt };
+				if (!state.rec.gap || gap > state.rec.gap.ms) state.rec.gap = { ms: gap, ...span };
+				if (!state.rec.gapOnline || online > state.rec.gapOnline.ms) state.rec.gapOnline = { ms: online, ...span };
+			}
+			state.totals.orgasm++;
+			state.last.orgasm = Math.max(state.last.orgasm || 0, x.t);
+			if (x.t >= session.start) session.orgasm++;
+			state.lastOrgasmAt = x.t;
+			state.streakStart = x.t;
+			// This stretch: only what Afterglow saw after it
+			for (const k of STREAK_KEYS) state.streak[k] = log.filter((e) => e[0] > x.t && e[1] === k).length;
+			log.push([x.t, "orgasm", "", "belt"]);
+			log.sort((a, b) => a[0] - b[0]);
+			if (log.length > LOG_MAX) log.splice(0, log.length - LOG_MAX);
+			writeLog();
+			writeSession();
+		}
+		save();
+		ui.render();
+		pushShares();
+	}
+	function beltIgnore(x) {
+		if (!x) return;
+		state.belt.ignored = x.t;
+		save();
+		ui.render();
+	}
+	let beltShown = null; // the news on screen, to redraw when it changes
+	let beltCheckAt = 0;
+	function checkBelt() {
+		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber || Date.now() - beltCheckAt < 5000) return;
+		beltCheckAt = Date.now();
+		const x = state.belt.mode === "off" ? null : beltNews();
+		if (x && state.belt.mode === "auto") return beltApply(x);
+		const key = x ? `${x.kind}|${x.t}` : "";
+		if (key !== beltShown) {
+			beltShown = key;
+			ui.render();
+		}
+	}
+
+	// ---------- sharing ----------
+	// Someone else's Afterglow asks ("ask"), only with a hidden message sent to you alone, when they open Afterglow and
+	// every 30 s while it's open. Yours answers ("stats"), to them alone, with the parts the game's permissions let
+	// them see, and sends news (a new orgasm, denial, an item going on) to whoever asked in the last minute. People
+	// without Afterglow simply ignore the ask. Nothing is broadcast to the room.
+	const MSG = "Afterglow";
+	const MSG_V = 1;
+	const ASK_EVERY_MS = 30_000; // ask someone who shares with you this often while Afterglow is open
+	const ASK_OTHERS_MS = 10 * 60_000; // and someone who didn't answer, this often
+	const SHARED_STALE_MS = 95_000; // no answer for this long: they stopped sharing or left
+	const WATCH_MS = 65_000; // send news to someone who asked within this long
+	const LEVELS = [
+		["item", "Same as my item permissions"],
+		[0, "Everyone in the room"],
+		[1, "Everyone except blacklist"],
+		[2, "Owner, lovers, whitelist, dominants"],
+		[3, "Owner, lovers, whitelist"],
+		[4, "Owner and lovers"],
+		[5, "Owner only"],
+		["none", "Nobody"],
+	];
+	const inRoom = () => typeof CurrentScreen !== "undefined" && CurrentScreen === "ChatRoom" && typeof ChatRoomData !== "undefined" && !!ChatRoomData && typeof ChatRoomCharacter !== "undefined" && Array.isArray(ChatRoomCharacter);
+	const charOf = (m) => (inRoom() ? ChatRoomCharacter.find((c) => c && c.MemberNumber === m) : null);
+	const nameOf = (m) => {
+		const c = charOf(m);
+		return c ? (typeof CharacterNickname === "function" ? CharacterNickname(c) : c.Nickname || c.Name) : `#${m}`;
+	};
+	// The game's own ladder (ServerChatRoomGetAllowItem), at the level you chose; blacklist and ghost list never pass
+	function allowedAt(c, level) {
+		try {
+			if (!c || typeof c.MemberNumber !== "number" || c.MemberNumber === Player.MemberNumber || level === "none") return false;
+			const P = Player;
+			if (P.HasOnBlacklist?.(c) || P.HasOnGhostlist?.(c)) return false;
+			let lvl = level === "item" ? Number(P.AllowedInteractions ?? P.ItemPermission ?? 2) : Number(level);
+			if (!Number.isFinite(lvl)) return false;
+			if (P.IsOwnedByCharacter?.(c)) return true;
+			if (lvl <= 1) return true;
+			const lover = !!c.IsLoverOfCharacter?.(P);
+			const white = !!P.HasOnWhitelist?.(c);
+			if (lvl === 2) {
+				const dom = typeof ReputationGet === "function" && Array.isArray(c.Reputation) && ReputationGet(c, "Dominant") + 25 >= ReputationGet(P, "Dominant");
+				return white || lover || dom;
+			}
+			if (lvl === 3) return white || lover;
+			if (lvl === 4) return lover;
+			return false;
+		} catch {
+			return false;
+		}
+	}
+	function send(target, payload) {
+		if (!inRoom() || typeof ServerSend !== "function" || typeof target !== "number") return;
+		try {
+			ServerSend("ChatRoomChat", { Content: MSG, Type: "Hidden", Target: target, Dictionary: [{ message: { v: MSG_V, ...payload } }] });
+		} catch (e) {
+			console.warn(TAG, "send failed", e);
+		}
+	}
+	// One message at a time, a little apart, so opening Afterglow in a full room doesn't flood the server
+	const outbox = [];
+	let outboxTimer = null;
+	function queue(target, payload) {
+		const i = outbox.findIndex((o) => o.target === target && o.payload.t === payload.t);
+		if (i >= 0) outbox[i] = { target, payload };
+		else outbox.push({ target, payload });
+		if (!outboxTimer) outboxTimer = setTimeout(drain, 0);
+	}
+	function drain() {
+		outboxTimer = null;
+		const o = outbox.shift();
+		if (!o) return;
+		send(o.target, o.payload);
+		if (outbox.length) outboxTimer = setTimeout(drain, 350);
+	}
+
+	// --- you, sharing ---
+	const watchers = new Map(); // member -> when they last asked
+	const sentTo = new Set(); // members we've sent stats to (and haven't told to stop)
+	const askers = new Map(); // member -> when they last asked (whether or not they could see anything)
+	// What this person may see right now (ages in ms, so their clock doesn't need to match yours)
+	function statsFor(c) {
+		if (!state.share.on || !loadedFor || loadedFor !== Player.MemberNumber) return null;
+		const now = Date.now();
+		const out = { t: "stats", name: Player.Nickname || Player.Name || "" };
+		if (allowedAt(c, state.share.counts)) {
+			out.counts = {
+				since: elapsed(state.streakStart),
+				exact: !!state.lastOrgasmAt,
+				streak: { ...state.streak },
+				session: Object.fromEntries(KIND_KEYS.map((k) => [k, session[k]])),
+				today: todayCounts(),
+				all: Object.fromEntries(KIND_KEYS.map((k) => [k, allTime(k)])),
+			};
+		}
+		if (allowedAt(c, state.share.records)) {
+			const g = recGap();
+			out.records = {
+				gap: g ? { ms: g.ms, exact: !!g.exact, manual: !!g.manual } : null,
+				rec: Object.fromEntries(STREAK_KEYS.map((k) => [k, state.rec[k]])),
+				edge: { session: session.edgeMs, today: edgeToday(), all: state.edgeMs },
+				online: state.timeMode === "online",
+			};
+		}
+		if (allowedAt(c, state.share.held)) {
+			out.held = {};
+			for (const k of HELD_KEYS) if (state.held[k]) out.held[k] = { age: now - state.held[k], items: causes(k).slice(0, 4) };
+		}
+		return out.counts || out.records || out.held ? out : null;
+	}
+	function answer(m) {
+		const c = charOf(m);
+		const stats = c && statsFor(c);
+		if (!stats) {
+			// They could see something before (sharing turned off, a permission changed): tell them once, so their view clears
+			if (c && sentTo.has(m)) queue(m, { t: "stop" });
+			sentTo.delete(m);
+			return watchers.delete(m);
+		}
+		sentTo.add(m);
+		watchers.set(m, watchers.get(m) || Date.now());
+		queue(m, stats);
+	}
+	// News for whoever is watching (each checked again: a permission can change at any time)
+	let pushTimer = null;
+	function pushShares() {
+		if (!watchers.size || pushTimer) return;
+		pushTimer = setTimeout(() => {
+			pushTimer = null;
+			const now = Date.now();
+			for (const [m, at] of watchers) {
+				if (now - at > WATCH_MS || !charOf(m)) watchers.delete(m);
+				else answer(m);
+			}
+		}, 1500);
+	}
+
+	// You changed who may see what: answer everyone who asked lately (their Afterglow is open), so a new "yes" or
+	// "no" reaches them now instead of at their next ask
+	function shareSettingsChanged() {
+		const now = Date.now();
+		for (const [m, at] of askers) {
+			if (now - at > ASK_OTHERS_MS + 60_000 || !charOf(m)) askers.delete(m);
+			else (watchers.set(m, now), answer(m));
+		}
+	}
+
+	// --- others sharing with you ---
+	const shared = new Map(); // member -> { at, d }: what they last sent
+	const askedAt = new Map(); // member -> when we last asked
+	let lookOpenedAt = 0;
+	function lookAround(panelOpen) {
+		if (!panelOpen || !state.share.look || !inRoom() || !loadedFor) return;
+		const now = Date.now();
+		for (const c of ChatRoomCharacter) {
+			const m = c?.MemberNumber;
+			if (typeof m !== "number" || m === Player.MemberNumber) continue;
+			const last = askedAt.get(m) || 0;
+			const every = shared.has(m) ? ASK_EVERY_MS : ASK_OTHERS_MS;
+			if (now - last >= every || last < lookOpenedAt) {
+				askedAt.set(m, now);
+				queue(m, { t: "ask" });
+			}
+		}
+		for (const [m, x] of shared) if (!charOf(m) || now - x.at > SHARED_STALE_MS) shared.delete(m);
+	}
+	// Opening the panel asks everyone again (at most once a minute)
+	function lookNow() {
+		if (Date.now() - lookOpenedAt > 60_000) lookOpenedAt = Date.now();
+	}
+	function receive(data) {
+		if (!data || data.Type !== "Hidden" || data.Content !== MSG || typeof data.Sender !== "number" || data.Sender === Player.MemberNumber) return;
+		const msg = Array.isArray(data.Dictionary) ? data.Dictionary.find((d) => d && d.message)?.message : null;
+		if (!msg || typeof msg !== "object" || msg.v !== MSG_V) return;
+		const m = data.Sender;
+		if (msg.t === "ask") {
+			askers.set(m, Date.now());
+			watchers.set(m, Date.now());
+			answer(m);
+		} else if (msg.t === "stats") {
+			shared.set(m, { at: Date.now(), d: msg });
+			ui.render();
+		} else if (msg.t === "stop") {
+			if (shared.delete(m)) ui.render();
+		}
+	}
+	mod.hookFunction("ChatRoomMessage", 0, (args, next) => {
+		safely(() => receive(args[0]));
+		return next(args);
+	});
 
 	function resetAll() {
 		if (!window.confirm("Reset every Afterglow count, record and the recent list on this account? This can't be undone.")) return;
@@ -820,6 +1310,12 @@
 		if ((Player.ArousalSettings?.Progress ?? 0) < DENY_DROP) dropped = true;
 		safely(checkHeld);
 		safely(addEdgeTime);
+		safely(checkBelt);
+		safely(() => {
+			const before = shared.size;
+			lookAround(ui.isOpen());
+			if (shared.size !== before) ui.render();
+		});
 		if (loadedFor && Player.MemberNumber === loadedFor && connected()) {
 			// Back after a disconnect, or the computer slept, without a new login: that silence was time away too
 			if (aliveAt && Date.now() - aliveAt > AWAY_MIN_MS + ALIVE_EVERY_MS) {
@@ -832,7 +1328,12 @@
 		ui.tick();
 	}, 1000);
 
-	const onLeave = () => writeSession();
+	// Leaving the page: keep the session, and save anything not yet saved with the account (time edged is otherwise
+	// saved once a minute)
+	const onLeave = () => {
+		writeSession();
+		if (dirty) saveNow();
+	};
 	window.addEventListener("pagehide", onLeave);
 
 	window.Afterglow = {
@@ -843,6 +1344,8 @@
 		stats: statsLine,
 		unload() {
 			clearInterval(tickTimer);
+			clearTimeout(outboxTimer);
+			clearTimeout(pushTimer);
 			window.removeEventListener("pagehide", onLeave);
 			clearTimeout(saveTimer);
 			ui.unmount();
