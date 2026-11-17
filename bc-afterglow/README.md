@@ -21,6 +21,10 @@ Chastity belt, From before Afterglow, What counts as what, Reset).
   - While a denial item is on you, ⛔ turns into a timer: **Held** for how long it's been on, with the
     count underneath. With an edging item it's 🫠 **Edged** instead. 💔 does the same while a ruin item
     is on you. They go back to counts when the item comes off.
+  - Under such a timer, a second line shows the other ways of counting it when they differ by more than a
+    minute: **39m online** (or **1h 11m in all** when **⚙ → Clocks** counts only time online), and for edging,
+    **35m edging**, how long you were actually edged since it went on (the time the 🫠 Time edged table adds up).
+    People you share with see the same figures.
   - Under the boxes, a line names the items doing it, for example "⛔ Polished Chastity Belt (Pelvis) ·
     🫠 Vibrating Egg (Vulva, Edge mode)". For a full look at every vibrator, see Vibe Link's
     [Inspect](../bc-vibe-link/README.md#inspect) tab.
@@ -35,9 +39,8 @@ Chastity belt, From before Afterglow, What counts as what, Reset).
   time, to the second, including while the game tab is in the background (Afterglow keeps time with a
   background worker, which the browser doesn't slow down). The all-time total can be reset on its own
   (**⚙ → Clocks → Reset time edged**).
-  - This can be less than the 🫠 **Edged** timer in the box: the box runs from when the item went on, including
-    time you were away (unless **⚙ → Clocks** counts only time online), and since Afterglow started counting
-    time edged after the item was already on, or after a reset of time edged.
+  - This can be less than the 🫠 **Edged** timer in the box, which runs from when the item went on, including
+    time you were away (unless **⚙ → Clocks** counts only time online). The box's second line shows both.
 - **The game's own count**: the lifetime orgasm count for your character, the number under its arousal
   meter when you zoom in on it. The game saves that number only when you leave its Preferences screen
   and with arousal updates in chat rooms, so it can lag behind or read 0; Afterglow's own counts don't

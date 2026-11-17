@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.3" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.8.0" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -68,6 +68,7 @@
 		show: "orgasm", // what the dock tab shows: the orgasm clock, or the denied / ruined / resisted box
 		held: { denied: 0, edged: 0, ruined: 0 }, // since when a denial / edging / ruin effect has been on you, 0: none now
 		edgeMs: 0, // time edged (online, with an edging effect on you), since edgeSince
+		heldEdge: null, // time edged since the current edging timer started (null: none, or it started before 0.8.0)
 		edgeSince: Date.now(), // when Afterglow started counting time edged, or it was last reset
 		edgeDay: { d: "", ms: 0 }, // time edged today (d: the local date it's for)
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
@@ -99,6 +100,7 @@
 		if (KINDS[s.show]) out.show = s.show;
 		for (const k of HELD_KEYS) out.held[k] = num(s.held?.[k]);
 		out.edgeMs = num(s.edgeMs);
+		out.heldEdge = typeof s.heldEdge === "number" && s.heldEdge >= 0 && out.held.edged ? Math.round(s.heldEdge) : null;
 		out.edgeSince = num(s.edgeSince, out.since);
 		if (s.edgeDay && typeof s.edgeDay.d === "string") out.edgeDay = { d: s.edgeDay.d, ms: num(s.edgeDay.ms) };
 		const gap = (g) => (g && num(g.ms) ? { ms: num(g.ms), from: num(g.from), to: num(g.to), exact: !!g.exact, ...(g.manual ? { manual: true } : {}) } : null);
@@ -317,11 +319,13 @@
 			if (on) offSince[k] = 0;
 			if (on && !state.held[k]) {
 				state.held[k] = Date.now();
+				if (k === "edged") state.heldEdge = 0;
 				changed = true;
 			} else if (!on && state.held[k]) {
 				offSince[k] ||= Date.now();
 				if (Date.now() - offSince[k] >= 5000) {
 					state.held[k] = 0;
+					if (k === "edged") state.heldEdge = null;
 					offSince[k] = 0;
 					changed = true;
 				}
@@ -378,6 +382,7 @@
 		if (state.edgeDay.d !== dayKey()) state.edgeDay = { d: dayKey(), ms: 0 };
 		state.edgeDay.ms += dt;
 		session.edgeMs += dt;
+		if (state.heldEdge != null) state.heldEdge += dt;
 		dirty = true;
 		if (now - edgeSessionAt >= 10_000) {
 			edgeSessionAt = now;
@@ -545,6 +550,7 @@
 #ag-body .ag-clocks{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin:4px 0}
 #ag-body .ag-k{font-size:10px;text-transform:uppercase;letter-spacing:.05em;color:var(--bcd-muted,#a99fc0)}
 #ag-body .ag-sub{color:#aaa;font-size:11px;margin:1px 0 4px}
+#ag-body .ag-sub.ag-x:empty{display:none}
 #ag-body .ag-rec{margin:4px 0;padding:4px 6px;border-radius:5px;background:var(--bcd-ctl,#24202c);font-size:11px}
 #ag-body .ag-rec.new{background:var(--bcd-tab-act,#3b2350);border:1px solid var(--bcd-hi,#9a5cc8);color:#fff}
 #ag-body table{width:100%;border-collapse:collapse;margin:4px 0;font-variant-numeric:tabular-nums}
@@ -826,7 +832,16 @@
 		const sharedHeld = (x, k) => {
 			const hd = x.d.held[k];
 			const label = { denied: "⛔ Denied", edged: "🫠 Edged", ruined: "💔 Ruin item on" }[k];
-			return `${label} ${two(fmtSpan(hd.age + ago(x)))}${hd.items?.length ? `: ${hd.items.join(", ")}` : ""}`;
+			const age = hd.age + ago(x);
+			// The same second line as your own boxes: time online, and time actually edged, when they differ by a minute
+			const ex = [];
+			const away = Number.isFinite(hd.away) ? hd.away : 0;
+			if (away >= 60_000) ex.push(`${two(fmtSpan(Math.max(0, age - away)))} online`);
+			if (k === "edged" && Number.isFinite(hd.edging)) {
+				const e = hd.edging + ago(x);
+				if (age - away - e >= 60_000) ex.push(`${edgeText(e)} edging`);
+			}
+			return `${label} ${two(fmtSpan(age))}${ex.length ? ` (${ex.join(", ")})` : ""}${hd.items?.length ? `: ${hd.items.join(", ")}` : ""}`;
 		};
 
 		// More → Sharing: who may see what, on the game's own permission ladder
@@ -867,6 +882,17 @@
 			if (away < 60_000) return "";
 			return state.timeMode === "online" ? `${fmtSpan(elapsed(t, "real"))} in all` : `${fmtSpan(elapsed(t, "online"))} online`;
 		}
+		// Under a held box's timer, the other ways of counting it when they differ by more than a minute: "39m online"
+		// (or "1h 11m in all" when the clocks count only time online), and for edging, how long you were actually edged
+		// since it started ("35m edging", the time the Time edged table adds up)
+		function heldExtra(on) {
+			const t = state.held[on];
+			if (!t) return "";
+			const parts = [];
+			if (awayBetween(t, Date.now()) >= 60_000) parts.push(state.timeMode === "online" ? `${two(fmtSpan(elapsed(t, "real")))} in all` : `${two(fmtSpan(elapsed(t, "online")))} online`);
+			if (on === "edged" && state.heldEdge != null && elapsed(t, "online") - state.heldEdge >= 60_000) parts.push(`${edgeText(state.heldEdge)} edging`);
+			return parts.join(" · ");
+		}
 		// One box. The big one: time since the last orgasm. The small ones (denied, ruined, resisted): how many since
 		// your last orgasm, with the record; denied and ruined turn into a timer while such an item is on you.
 		// Clicking a box shows it on the dock tab's summary (📌).
@@ -902,6 +928,7 @@
 				},
 				h("div", { class: "ag-k" }, big ? `${KINDS[k].icon} Since last orgasm${pinned ? " 📌" : ""}` : `${KINDS[on || k].icon} ${on === "edged" ? "Edged" : held ? "Held" : KINDS[k].label}${pinned ? " 📌" : ""}`),
 				h("div", { class: "ag-t", "data-ag-clock": k }, clockText(k)),
+				held ? h("div", { class: "ag-sub ag-x", "data-ag-extra": on }, heldExtra(on)) : null,
 				h("div", { class: "ag-sub" }, sub)
 			);
 		}
@@ -953,6 +980,10 @@
 			panel.setSummary(clockText(state.show, true));
 			for (const el of root?.querySelectorAll("[data-ag-clock]") || []) {
 				const t = clockText(el.dataset.agClock);
+				if (el.textContent !== t) el.textContent = t;
+			}
+			for (const el of root?.querySelectorAll("[data-ag-extra]") || []) {
+				const t = heldExtra(el.dataset.agExtra);
 				if (el.textContent !== t) el.textContent = t;
 			}
 			const edge = { session: session.edgeMs, today: edgeToday(), all: state.edgeMs };
@@ -1177,7 +1208,14 @@
 		}
 		if (allowedAt(c, state.share.held)) {
 			out.held = {};
-			for (const k of HELD_KEYS) if (state.held[k]) out.held[k] = { age: now - state.held[k], items: causes(k).slice(0, 4) };
+			for (const k of HELD_KEYS)
+				if (state.held[k])
+					out.held[k] = {
+						age: now - state.held[k],
+						away: awayBetween(state.held[k], now),
+						...(k === "edged" && state.heldEdge != null ? { edging: state.heldEdge } : {}),
+						items: causes(k).slice(0, 4),
+					};
 		}
 		return out.counts || out.records || out.held ? out : null;
 	}
