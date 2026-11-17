@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "HeldRemote", fullName: "Held Remote", version: "0.1.0" };
+	const MOD_INFO = { name: "HeldRemote", fullName: "Held Remote", version: "0.1.1" };
 	const TAG = "[HeldRemote]";
 	const ON_KEY = (m) => `HeldRemote.${m}`;
 	const GRANT_KEY = (m) => `HeldRemote.grant.${m}`;
@@ -52,11 +52,17 @@
 		if (m) {
 			try {
 				const g = JSON.parse(lsGet(GRANT_KEY(m)) || "null");
-				if (g && Number.isInteger(g.by) && (g.how === "given" || g.how === "tied")) grant = g;
+				if (g && Number.isInteger(g.by) && ["given", "tied", "relog"].includes(g.how)) grant = g;
 			} catch {}
 		}
 	}
 	const saveGrant = () => member && lsSet(GRANT_KEY(member), grant ? JSON.stringify(grant) : null);
+	function setGrant(g, why) {
+		grant = g;
+		saveGrant();
+		console.info(TAG, g ? `remote from ${g.name || `#${g.by}`} (${g.how})` : "remote permission ended", why ? `: ${why}` : "");
+		ui.render();
+	}
 
 	// ---------- game helpers ----------
 
@@ -143,9 +149,7 @@
 		if (!before.holding) how = "given";
 		else if (!before.blocked && armsBlocked()) how = "tied";
 		if (!how) return;
-		grant = { by: source, name: nameOf(source), how, at: Date.now() };
-		saveGrant();
-		ui.render();
+		setGrant({ by: source, name: nameOf(source), how, at: Date.now() }, "seen in the room");
 		if (on) tell(`🎚 ${grant.name} ${how === "given" ? "put the Vibe Remote in your hand" : "tied you with the Vibe Remote in your hand"}: you can use it on your vibrators.`);
 	}
 	const snapshot = () => ({ holding: holding(), blocked: armsBlocked() });
@@ -175,13 +179,37 @@
 		}
 	}
 
-	// The permission ends when the remote leaves your hand
+	// The permission ends when the remote leaves your hand. Only judged while the game is settled (connected, your
+	// character loaded, not on the login or reconnect screens), and only once it's been gone a few seconds, so a
+	// disconnect or a reload never ends it by mistake.
+	let missingSince = 0;
+	const settled = () =>
+		(typeof ServerIsConnected === "undefined" || ServerIsConnected) &&
+		Array.isArray(Player?.Appearance) &&
+		Player.Appearance.length > 0 &&
+		!(typeof CurrentScreen !== "undefined" && ["Login", "Relog", "Disclaimer", "Creation"].includes(CurrentScreen));
 	function check() {
-		if (grant && member && !holding()) {
-			grant = null;
-			saveGrant();
-			ui.render();
+		if (!grant || !member || !settled()) return (missingSince = 0);
+		if (holding()) return (missingSince = 0);
+		if (!missingSince) missingSince = Date.now();
+		else if (Date.now() - missingSince >= 3000) {
+			missingSince = 0;
+			setGrant(null, "the remote left your hand");
 		}
+	}
+
+	// Logging in, reconnecting or reloading while you're tied with the remote already in your hand: it counts. Held
+	// Remote can't have seen how it got there (it wasn't running, or the hand-off happened while you were away), and you
+	// couldn't have put it there yourself while tied. Checked once the game has settled after each login or reconnect.
+	let startCheck = true;
+	let wasConnected = true;
+	function checkStart() {
+		const conn = typeof ServerIsConnected === "undefined" || !!ServerIsConnected;
+		if (conn && !wasConnected) startCheck = true; // back from a disconnect
+		wasConnected = conn;
+		if (!startCheck || !member || !settled()) return;
+		startCheck = false;
+		if (!grant && holding() && armsBlocked()) setGrant({ by: 0, name: "", how: "relog", at: Date.now() }, "in your hand when you came back");
 	}
 
 	function setOn(v) {
@@ -193,8 +221,11 @@
 	}
 
 	function status() {
-		if (!grant) return holding() ? "You picked up the remote yourself, so it doesn't count; someone else has to give it to you or tie you holding it." : "Nobody has left you with a Vibe Remote.";
-		const who = `${grant.name || `#${grant.by}`} ${grant.how === "given" ? "gave you the remote" : "tied you holding the remote"}`;
+		if (!grant) return holding() ? "You picked up the remote yourself, so it doesn't count yet: someone else has to give it to you or tie you holding it." : "Nobody has left you with a Vibe Remote.";
+		const who =
+			grant.how === "relog"
+				? "The remote was in your hand when you came back"
+				: `${grant.name || `#${grant.by}`} ${grant.how === "given" ? "gave you the remote" : "tied you holding the remote"}`;
 		if (!handFree()) return `${who}, but your hand can't hold it right now.`;
 		return `${who}: you can use it on your vibrators while tied.`;
 	}
@@ -246,7 +277,8 @@
 	function tick() {
 		addCommand();
 		const m = Player?.MemberNumber || null;
-		if (m !== member) load(m);
+		if (m !== member) (load(m), (startCheck = true));
+		checkStart();
 		check();
 		const sig = `${member}|${on}|${grant?.by}|${usable()}`;
 		if (sig !== lastSig) (lastSig = sig), ui.render();

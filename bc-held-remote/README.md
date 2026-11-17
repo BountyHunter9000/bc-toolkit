@@ -15,7 +15,11 @@ All of these:
 
 - **Someone else left you with the remote:** they put the Vibe Remote in your hand, or they tied your arms while
   you were holding it. Picking it up yourself, or tying yourself while holding it, doesn't count.
-- **It's still in your hand.** Once the remote leaves your hand, it's over until someone gives it back.
+- **Or it was in your hand when you came back:** if you log in, reconnect or reload while you're tied with the
+  remote in your hand, it counts. Held Remote can't have seen how it got there, and you couldn't have put it
+  there yourself while tied.
+- **It's still in your hand.** Once the remote has been out of your hand for a few seconds, it's over until someone
+  gives it back. A disconnect or reload doesn't end it.
 - **Your hand can hold it.** Armbinders, straitjackets, mitts and anything else that blocks the hand slot rule it
   out; ropes, cuffs and the like don't.
 - **It's your own vibrator.** Shock items never count, nor do other people's items.
