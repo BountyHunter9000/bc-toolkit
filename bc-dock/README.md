@@ -2,7 +2,7 @@
 
 *Part of [BC Toolkit](../README.md). Not installed on its own: every add-on's loader brings it along.*
 
-A small shared frame that Little Black Book, Quick Actions, Vibe Link and Afterglow put their panels in, so they
+A small shared frame that Little Black Book, Quick Actions, Vibe Link, Afterglow and Quiet put their panels and buttons in, so they
 stop floating separately and overlapping the game. It's only the frame: each add-on keeps its own
 settings, storage and logic.
 
@@ -26,6 +26,7 @@ settings, storage and logic.
 ```
 
 - **📓** opens Little Black Book's own big window, as its bubble used to. Its badge is the unread count.
+- **🔔** is Quiet's button: one click mutes the game's notifications in that tab (🔕), another turns them back on.
 - **⚡ / 〰 / ✨** slide out Quick Actions / Vibe Link / Afterglow. The panel header shows the title, a one-line
   summary, the add-on's own buttons (Vibe Link's 🛑) and ✕.
 - Tabs show a **badge** and a **status dot** (Vibe Link: green = toy connected, yellow = waiting,
@@ -46,7 +47,7 @@ settings, storage and logic.
   logged out). A panel hidden that way comes back open when its tab returns.
 - Position, side, opacity, theme, widths and the open panel are kept in this browser's `localStorage`
   (`BCDock.v2`).
-- Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link, Afterglow.
+- Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet.
 
 ## Reloading the add-ons without reloading the game
 
