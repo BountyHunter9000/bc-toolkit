@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.2" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.3" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -1307,7 +1307,41 @@
 
 	// ---------- wiring ----------
 	ui.mount();
-	const tickTimer = setInterval(() => {
+	// The tick runs off a worker: a background tab's own timers slow to once a minute after a few minutes, which made
+	// time edged and the "still here" marks coarse. A worker's timers aren't slowed, and its messages arrive on time.
+	// If a worker can't start (blocked by the page's security policy), plain setInterval is the fallback.
+	function startTicker(fn, ms) {
+		let worker = null;
+		let url = null;
+		let fallback = null;
+		const useFallback = () => {
+			if (fallback) return;
+			worker?.terminate();
+			worker = null;
+			fallback = setInterval(fn, ms);
+		};
+		try {
+			url = URL.createObjectURL(new Blob([`setInterval(() => postMessage(0), ${ms});`], { type: "text/javascript" }));
+			worker = new Worker(url);
+			let ticked = false;
+			worker.onmessage = () => {
+				ticked = true;
+				if (worker) fn();
+			};
+			worker.onerror = useFallback;
+			setTimeout(() => ticked || useFallback(), 2000);
+		} catch {
+			useFallback();
+		}
+		return () => {
+			worker?.terminate();
+			worker = null;
+			clearInterval(fallback);
+			fallback = -1;
+			if (url) URL.revokeObjectURL(url);
+		};
+	}
+	function tick() {
 		addCommand();
 		if (Player.MemberNumber && loadedFor !== Player.MemberNumber) {
 			loadedFor = Player.MemberNumber;
@@ -1336,7 +1370,8 @@
 			} else markAlive();
 		}
 		ui.tick();
-	}, 1000);
+	}
+	const stopTicker = startTicker(tick, 1000);
 
 	// Leaving the page: keep the session, and save anything not yet saved with the account (time edged is otherwise
 	// saved once a minute)
@@ -1353,7 +1388,7 @@
 		log: () => [...log],
 		stats: statsLine,
 		unload() {
-			clearInterval(tickTimer);
+			stopTicker();
 			clearTimeout(outboxTimer);
 			clearTimeout(pushTimer);
 			window.removeEventListener("pagehide", onLeave);
