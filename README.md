@@ -10,6 +10,7 @@ on the edge of the screen. Install only the ones you want: each has its own Tamp
 | 〰 [Vibe Link](bc-vibe-link/README.md) | Real toys follow the vibrators your character wears, through Intiface Central, with smooth ramps, patterns and remote control | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js) |
 | ✨ [Afterglow](bc-afterglow/README.md) | Counts your orgasms, ruined orgasms, resists, denials and edges, the time since your last orgasm, and your records; share them with people your game permissions allow. `/afterglow` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-afterglow/afterglow.user.js) |
 | 🔔 [Quiet](bc-quiet/README.md) | Mute or unmute every game notification in one tab with a click on the dock; it stays muted until you turn it back on. `/quiet` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quiet/quiet.user.js) |
+| 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-held-remote/held-remote.user.js) |
 
 The [dock](bc-dock/README.md) comes along with whichever add-on you install: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab).
