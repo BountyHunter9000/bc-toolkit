@@ -33,6 +33,8 @@ keep their meaning in every theme: whispers blue, room changes teal, unread badg
 - **Join their room** when a friend is in a public room and you're not in a room.
 - 🔔 **Background notifications** for whispers (on by default) and beeps (off by default, since the
   game already pops up beeps). Clicking one opens the conversation. Set on the ⚙ Settings page.
+  While [Quiet](../bc-quiet/README.md) has the tab muted, these and the online alerts don't pop up
+  either (the chat line for online alerts still shows).
 - Reading a chat here also clears its unread count in the game's own friend list (its Beeps tab).
 - **Import LianChat** copies LianChat's beep/whisper history for the logged-in account. Safe to run
   more than once; run it once on each account.

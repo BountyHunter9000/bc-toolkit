@@ -18,7 +18,9 @@ sound). Notifications already showing are cleared when you mute.
 - **Your game settings don't change.** Whatever you picked in the game's Preferences → Notifications stays as it
   is, and comes back the moment you unmute. The **Test** button there still works while muted.
 - The tab's tooltip shows how many notifications were held back since you muted.
-- Notifications that other add-ons make by themselves, without going through the game's, aren't covered.
+- [Little Black Book](../bc-little-black-book/README.md) (1.2.2 and later) holds back its own popups too: beeps,
+  whispers and online alerts. Notifications that other add-ons make by themselves, without going through the
+  game's, aren't covered.
 
 ## /quiet
 

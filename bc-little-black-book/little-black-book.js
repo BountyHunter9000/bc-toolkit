@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.1" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.2" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -731,11 +731,19 @@
 		}
 		// ...and a line in your chat (only you see it), so it's there when you come back
 		if (typeof ChatRoomSendLocal === "function" && inRoom()) ChatRoomSendLocal(`🔔 ${name} (${f.MemberNumber}) is online, ${where}.`, 60_000);
-		console.info(TAG, `${name} (${f.MemberNumber}) came online, ${where}; ${desktop ? "desktop notification" : notAtGame() ? `no desktop notification (notifications ${typeof Notification === "undefined" ? "unsupported" : Notification.permission})` : "game in front, chat line only"}`);
+		console.info(TAG, `${name} (${f.MemberNumber}) came online, ${where}; ${desktop ? "desktop notification" : notAtGame() ? `no desktop notification (${quieted() ? "muted by Quiet" : `notifications ${typeof Notification === "undefined" ? "unsupported" : Notification.permission}`})` : "game in front, chat line only"}`);
 	}
 	// Not looking at the game: its tab is in the background, or the browser window isn't the active app
 	const notAtGame = () => document.hidden || !document.hasFocus();
-	const canNotify = () => typeof Notification !== "undefined" && Notification.permission === "granted";
+	const canNotify = () => typeof Notification !== "undefined" && Notification.permission === "granted" && !quieted();
+	// The Quiet add-on (if installed) has notifications muted in this tab. Settings' test button ignores this.
+	const quieted = () => {
+		try {
+			return window.Quiet?.isMuted?.() === true;
+		} catch {
+			return false;
+		}
+	};
 	// Members flagged 🔔 on this account (kept here, outside the panel, so it works with the panel closed)
 	let bells = new Set();
 	let bellsFor = null;
