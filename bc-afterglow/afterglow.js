@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.1" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.7.2" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -25,7 +25,9 @@
 	// A session (the Session column, and time edged this session) carries on through reloads, reconnects and short
 	// breaks; after this long without Afterglow running, the next login starts a new one.
 	const SESSION_GAP_MS = 30 * 60_000;
-	const EDGE_TICK_MAX_MS = 5000; // a longer gap between two ticks (computer asleep, tab frozen) isn't counted as time edged
+	// A longer gap between two ticks (computer asleep, tab frozen, disconnected) isn't counted as time edged. It matches
+	// "away" (AWAY_MIN_MS): Chrome slows a background tab's timers to once a minute, and those minutes count.
+	const EDGE_TICK_MAX_MS = AWAY_MIN_MS;
 
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.Afterglow && typeof window.Afterglow.unload === "function") window.Afterglow.unload();

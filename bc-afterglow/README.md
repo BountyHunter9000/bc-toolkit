@@ -32,7 +32,11 @@ Chastity belt, From before Afterglow, What counts as what, Reset).
 - **Counts** of orgasms, ruined, resisted, failed resists, denied and edged for this session, today and all
   time.
 - **🫠 Time edged**: how long you've had an edging item on while online, for this session, today and all
-  time. The all-time total can be reset on its own (**⚙ → Clocks → Reset time edged**).
+  time, including while the game tab is in the background. The all-time total can be reset on its own
+  (**⚙ → Clocks → Reset time edged**).
+  - This can be less than the 🫠 **Edged** timer in the box: the box runs from when the item went on, including
+    time you were away (unless **⚙ → Clocks** counts only time online), and since Afterglow started counting
+    time edged after the item was already on, or after a reset of time edged.
 - **The game's own count**: the lifetime orgasm count for your character, the number under its arousal
   meter when you zoom in on it. The game saves that number only when you leave its Preferences screen
   and with arousal updates in chat rooms, so it can lag behind or read 0; Afterglow's own counts don't
