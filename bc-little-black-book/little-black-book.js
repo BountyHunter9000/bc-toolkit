@@ -9,7 +9,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.2" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.3" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
