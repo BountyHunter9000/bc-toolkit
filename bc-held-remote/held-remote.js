@@ -8,7 +8,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "HeldRemote", fullName: "Held Remote", version: "0.1.1" };
+	const MOD_INFO = { name: "HeldRemote", fullName: "Held Remote", version: "0.1.2" };
 	const TAG = "[HeldRemote]";
 	const ON_KEY = (m) => `HeldRemote.${m}`;
 	const GRANT_KEY = (m) => `HeldRemote.grant.${m}`;
