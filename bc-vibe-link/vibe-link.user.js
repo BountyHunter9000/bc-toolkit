@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         BC Toolkit: Vibe Link
 // @namespace    bc-toolkit
-// @version      0.13.1
+// @version      0.14.0
 // @description  Drives real toys through Intiface Central from the vibrators your Bondage Club character wears
 // @author       BountyHunter9000
 // @license      GPL-3.0-or-later
@@ -17,10 +17,10 @@
 // @match        https://www.bondageprojects.com/*
 // @run-at       document-end
 // @grant        none
-// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@vl-v0.13.1/bc-dock/bc-dock.js
-// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@vl-v0.13.1/bc-vibe-link/vibe-link.js
+// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@vl-v0.14.0/bc-dock/bc-dock.js
+// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@vl-v0.14.0/bc-vibe-link/vibe-link.js
 // @updateURL    https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js
 // @downloadURL  https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js
 // ==/UserScript==
 
-// The add-on is loaded by the @require lines above, from the vl-v0.13.1 release of BountyHunter9000/bc-toolkit.
+// The add-on is loaded by the @require lines above, from the vl-v0.14.0 release of BountyHunter9000/bc-toolkit.

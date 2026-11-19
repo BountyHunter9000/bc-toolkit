@@ -55,6 +55,9 @@ one tab connects and the others wait, showing **In use by Robin's tab** with a y
 - **Use here** (or `/vibe here`) moves Intiface to this tab; the other tab lets go and waits.
 - When the connected tab closes, logs out or disconnects, a waiting tab takes over by itself.
 - WCE's own toy sync counts as a connection too, so keep its buttplug.io option off.
+- The browser tab's title shows **〰** in front of the character's name in the tab that's connected (with the
+  dock's character name in the tab, see [BC Dock](../bc-dock/README.md#browser-tab-title)), so you can see which
+  tab has Intiface from the tab bar.
 
 ## What it does
 

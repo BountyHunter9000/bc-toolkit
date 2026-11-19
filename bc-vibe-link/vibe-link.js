@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.13.1" };
+	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.14.0" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -2368,6 +2368,7 @@
 		}
 
 		function unmount() {
+			window.BCDock?.setTitleMark?.("vibe-link", null);
 			panel?.remove();
 			window.removeEventListener("pointerup", releaseRenders, true);
 			window.removeEventListener("pointercancel", releaseRenders, true);
@@ -2382,6 +2383,8 @@
 			render();
 		}
 
+		// 〰 in the browser tab's title while connected to Intiface (dock 13 and later)
+		const titleMark = () => window.BCDock?.setTitleMark?.("vibe-link", loggedIn() && conn === "connected" ? "〰" : null);
 		function statusDot() {
 			if (local.paused) return "bad";
 			if (conn === "connected") return toys.size ? "on" : "wait";
@@ -2428,6 +2431,7 @@
 			if (pointerHeld) return void (renderHeld = true);
 			panel.setVisible(loggedIn());
 			panel.setDot(statusDot() || "none");
+			titleMark();
 			panel.setSummary(summary());
 			panel.actions.replaceChildren(
 				...[
@@ -3825,6 +3829,7 @@
 				lastSum = sum;
 				panel.setSummary(sum);
 				panel.setDot(statusDot() || "none");
+				titleMark();
 			}
 			if (!panel.isOpen()) return;
 			const now = Date.now();
