@@ -7,7 +7,7 @@
 // leave it alone, and a newer version takes over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 12; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload
+	const VERSION = 13; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -94,6 +94,62 @@
 			localStorage.setItem(STORE, JSON.stringify(state));
 		} catch {}
 	};
+
+	// ---------- browser tab title ----------
+	// "(3) Kira · Bondage Club": the character's name (nickname if set) after the game's own notification count, with
+	// any markers add-ons ask for in front of it (Quiet's 🔕). The game writes the title itself (NotificationTitleUpdate,
+	// as "(3) Bondage Club"); the dock watches the <title> and adds the name right after each write. Watching isn't
+	// slowed in a background tab, the way timers are, and needs no hook in the game. Off: ⚙ → Character name in the tab.
+	const titleMarks = new Map(prev?._titleMarks?.() || []); // add-on id -> marker text
+	let titleBase = null; // the title as the game (or another mod) last wrote it, without our additions
+	let titleSet = null; // the title we last wrote
+	const titleOn = () => state.titleName !== false;
+	function titleName() {
+		try {
+			if (typeof Player === "undefined" || !Player?.MemberNumber) return "";
+			const n = typeof CharacterNickname === "function" ? CharacterNickname(Player) : "";
+			return String(n || Player.Name || "").trim();
+		} catch {
+			return String(Player?.Name || "").trim();
+		}
+	}
+	function wantTitle(base) {
+		const m = /^(\(\d+\)\s*)?([\s\S]*)$/.exec(base);
+		const marks = [...titleMarks.values()].filter(Boolean).join("");
+		const name = titleOn() ? titleName() : "";
+		return `${m[1] || ""}${marks ? `${marks} ` : ""}${name ? `${name} · ` : ""}${m[2]}`;
+	}
+	function applyTitle() {
+		if (document.title !== titleSet) titleBase = document.title; // written by someone else since: that's the new base
+		if (titleBase == null) titleBase = document.title;
+		const t = wantTitle(titleBase);
+		titleSet = t;
+		if (document.title !== t) document.title = t;
+	}
+	const titleObserver = new MutationObserver(() => {
+		if (document.title !== titleSet) applyTitle();
+	});
+	function titleStart() {
+		titleObserver.observe(document.head || document.documentElement, { subtree: true, childList: true, characterData: true });
+		applyTitle();
+	}
+	// Logging in, out or as someone else changes the name without a title write: checked every couple of seconds
+	let titleWho = null;
+	const titleTimer = setInterval(() => {
+		const who = `${titleOn()}|${titleName()}`;
+		if (who !== titleWho) (titleWho = who), applyTitle();
+	}, 2000);
+	function titleStop() {
+		titleObserver.disconnect();
+		clearInterval(titleTimer);
+		if (titleBase != null && document.title === titleSet) document.title = titleBase; // hand back the game's own title
+	}
+	function setTitleMark(id, text) {
+		if (typeof id !== "string" || !id) return;
+		if (text == null || text === "") titleMarks.delete(id);
+		else titleMarks.set(id, String(text).slice(0, 8));
+		applyTitle();
+	}
 
 	const CSS = `
 :root{--bcd-opacity:${state.opacity}}
@@ -224,6 +280,22 @@
 			el("div", { class: "sides" }, SIDES.map((sd) => el("button", { onclick: () => setSide(sd), style: state.side === sd ? "background:var(--bcd-line)" : "" }, sd[0].toUpperCase() + sd.slice(1)))),
 			el("div", { class: "hint" }, "Drag a tab to move the rail along or to another edge."),
 			...themeSection(),
+			el("h4", {}, "Browser tab"),
+			el(
+				"label",
+				{ class: "row", title: "Shows who's logged in on the browser tab, e.g. \"(3) Kira · Bondage Club\", so you can tell your game tabs apart" },
+				el("input", {
+					type: "checkbox",
+					checked: titleOn(),
+					onchange: (e) => {
+						state.titleName = e.target.checked;
+						save();
+						titleWho = null;
+						applyTitle();
+					},
+				}),
+				"Character name in the tab"
+			),
 			el("h4", {}, "Add-ons"),
 			el(
 				"div",
@@ -650,8 +722,11 @@
 		qa: { dir: "bc-quick-actions", file: "quick-actions.js", label: "Quick Actions" },
 		vibe: { dir: "bc-vibe-link", file: "vibe-link.js", label: "Vibe Link" },
 		ag: { dir: "bc-afterglow", file: "afterglow.js", label: "Afterglow" },
+		quiet: { dir: "bc-quiet", file: "quiet.js", label: "Quiet" },
+		hr: { dir: "bc-held-remote", file: "held-remote.js", label: "Held Remote" },
+		vf: { dir: "bc-vibe-fix", file: "vibe-fix.js", label: "Vibe Fix" },
 	};
-	const DEV_ORDER = ["dock", "book", "qa", "vibe", "ag"]; // the dock first, so the add-ons land in the new one
+	const DEV_ORDER = ["dock", "book", "qa", "vibe", "ag", "quiet", "hr", "vf"]; // the dock first, so the add-ons land in the new one
 	// Hidden unless a Tampermonkey loader turns them on, so a published copy never shows or runs any of it:
 	//   window.BCDockDev = { reload: true, watch: false };
 	// reload: the ⚙ Developer section and /reload. watch: also allows "reload whenever a file is saved".
@@ -886,12 +961,16 @@
 		reopen = taken.active || null;
 	}
 	place();
+	titleStart();
 
 	const api = {
 		version: VERSION,
 		theme: () => themeColors(), // current palette (CSS variable -> value); "bcdock:theme" fires on window when it changes
 		add,
 		isOpen: (id) => active === id && !!panels.get(id),
+		// A marker in front of the name in the browser tab (an emoji or two), e.g. setTitleMark("quiet", "🔕"); null
+		// removes it. Several add-ons' markers show side by side.
+		setTitleMark,
 		reset() {
 			state.side = "left";
 			state.y = state.x = null;
@@ -906,6 +985,7 @@
 		_devKnown: () => dev.known,
 		_devRoot: () => dev.root,
 		_devKnownSet: (k) => (dev.known = { ...(dev.known || {}), ...k }),
+		_titleMarks: () => [...titleMarks],
 		_takeover() {
 			const out = {
 				active: active === CFG ? null : active,
@@ -924,6 +1004,7 @@
 			clearInterval(yieldTimer);
 			document.documentElement.classList.remove("bcd-yield");
 			devStop();
+			titleStop();
 			rail.remove();
 			fly.remove();
 			style.remove();

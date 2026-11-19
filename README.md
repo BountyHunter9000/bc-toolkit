@@ -14,7 +14,8 @@ on the edge of the screen. Install only the ones you want: each has its own Tamp
 | 🔧 [Vibe Fix](bc-vibe-fix/README.md) | Stopgap for an R134 bug where vibrators never turn down: Off and lower levels (and Escalate starting over) set the intensity you picked again. No settings. | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-fix/vibe-fix.user.js) |
 
 The [dock](bc-dock/README.md) comes along with whichever add-on you install: a rail of tabs with
-themes, opacity and position settings (its ⚙ tab).
+themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
+("Kira · Bondage Club"), so your game tabs are easy to tell apart.
 
 ## Installing
 

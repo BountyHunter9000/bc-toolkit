@@ -50,6 +50,21 @@ settings, storage and logic.
   (`BCDock.v2`).
 - Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet, Held Remote.
 
+## Browser tab title
+
+The dock puts the logged-in character's name (their nickname, if they've set one) in the browser tab, so your
+game tabs can be told apart: **(3) Kira · Bondage Club**. The game's own count of unread notifications stays in
+front. Logged out, the tab says Bondage Club as usual. Switch it off in **⚙ → Browser tab → Character name in the
+tab**.
+
+Add-ons can put a small marker in front of the name: Quiet shows **🔕** while the tab is muted, and Vibe Link
+shows **〰** while it's connected to Intiface, e.g. **🔕〰 Kira · Bondage Club**.
+
+- The dock watches the page's `<title>` and adds the name each time the game (or another add-on) writes it. No game
+  function is hooked, and it keeps up in a background tab.
+- For add-on authors: `BCDock.setTitleMark(id, text)` sets a marker (an emoji or two) under your add-on's id; `null`
+  removes it. Check that it exists first (`window.BCDock?.setTitleMark?.(…)`): docks before version 13 don't have it.
+
 ## Reloading the add-ons without reloading the game
 
 Developer tools are hidden unless a Tampermonkey loader turns them on. The dev loaders do it with
