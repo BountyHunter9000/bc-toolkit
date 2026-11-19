@@ -6,7 +6,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "QuickActions", fullName: "Quick Actions", version: "0.5.1" };
+	const MOD_INFO = { name: "QuickActions", fullName: "Quick Actions", version: "0.5.2" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
