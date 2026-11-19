@@ -7,7 +7,7 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "Quiet", fullName: "Quiet", version: "0.1.0" };
+	const MOD_INFO = { name: "Quiet", fullName: "Quiet", version: "0.2.0" };
 	const TAG = "[Quiet]";
 	const KEY = (m) => `Quiet.${m}`;
 
@@ -105,8 +105,11 @@
 			tab.setVisible(!!member);
 			tab.setSummary(tip());
 			tab.setDot(muted ? "bad" : "none");
+			// 🔕 in the browser tab's title while muted (dock 13 and later)
+			window.BCDock?.setTitleMark?.("quiet", member && muted ? "🔕" : null);
 		}
 		function unmount() {
+			window.BCDock?.setTitleMark?.("quiet", null);
 			tab?.remove();
 			tab = null;
 		}

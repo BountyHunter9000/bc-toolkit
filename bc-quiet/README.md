@@ -18,6 +18,8 @@ sound). Notifications already showing are cleared when you mute.
 - **Your game settings don't change.** Whatever you picked in the game's Preferences → Notifications stays as it
   is, and comes back the moment you unmute. The **Test** button there still works while muted.
 - The tab's tooltip shows how many notifications were held back since you muted.
+- The browser tab's title shows **🔕** in front of your name while muted (with the dock's character name in the tab,
+  see [BC Dock](../bc-dock/README.md#browser-tab-title)), so you can see which game tabs are muted from the tab bar.
 - [Little Black Book](../bc-little-black-book/README.md) (1.2.2 and later) holds back its own popups too: beeps,
   whispers and online alerts. Notifications that other add-ons make by themselves, without going through the
   game's, aren't covered.
