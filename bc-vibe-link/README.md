@@ -312,14 +312,12 @@ open.
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and confirm in Tampermonkey.
+2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+   confirm in Tampermonkey.
 3. Reload the game. Vibe Link runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).
 
-**Only this add-on:** install **[vibe-link.user.js](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js)**
-instead of BC Toolkit. If you have both, the separate script runs Vibe Link and BC Toolkit leaves it alone.
-
-Tampermonkey checks for updates on its own. To work on the code itself, see
+New releases arrive by themselves while the menu is on Latest. To work on the code itself, see
 [Development](../README.md#development).
 
 Vibe Link also needs [Intiface Central](https://intiface.com/central/) running on the same computer (see Setup).

@@ -60,14 +60,12 @@ when it is, yellow when it's on but not usable.
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and confirm in Tampermonkey.
+2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+   confirm in Tampermonkey.
 3. Reload the game. Held Remote runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).
 
 Held Remote starts switched off: switch it on with **🎚** or `/heldremote on`.
 
-**Only this add-on:** install **[held-remote.user.js](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-held-remote/held-remote.user.js)**
-instead of BC Toolkit. If you have both, the separate script runs Held Remote and BC Toolkit leaves it alone.
-
-Tampermonkey checks for updates on its own. To work on the code itself, see
+New releases arrive by themselves while the menu is on Latest. To work on the code itself, see
 [Development](../README.md#development).

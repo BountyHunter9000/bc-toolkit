@@ -1,7 +1,6 @@
 # Dock
 
-*Part of [BC Toolkit](../README.md). Not installed on its own: the BC Toolkit script, and every add-on's own
-script, bring it along.*
+*Part of [BC Toolkit](../README.md). Not installed on its own: the BC Toolkit script brings it along.*
 
 A small shared frame that Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet and Held Remote put their panels and buttons in, so they
 stop floating separately and overlapping the game. It's only the frame: each add-on keeps its own
@@ -9,13 +8,11 @@ settings, storage and logic.
 
 ## How it fits together
 
-- `bc-dock.js` is loaded by each add-on's Tampermonkey loader (`@require`) **before** the add-on
-  itself. Whichever add-on loads first creates the dock (`window.BCDock`); the others find it and add
-  their panel. Each add-on still works on its own: with only Vibe Link installed you get a dock with
-  one panel.
-- If two different versions are loaded, the newer one takes over and keeps the panels already added.
-  For development all three loaders point at the same file (`bc/bc-dock/bc-dock.js`), so
-  there is one copy to edit.
+- `bc-dock.js` is loaded by the BC Toolkit script (`@require`), and loads the add-ons after it (see
+  [One script for all add-ons](#one-script-for-all-add-ons)). Each add-on adds its panel or button to the dock;
+  an add-on that's switched off simply has no tab.
+- If two different versions are loaded, the newer one takes over and keeps the panels already added. For
+  development the dev loaders all point at the same file (`bc/bc-dock/bc-dock.js`), so there is one copy to edit.
 
 ## What it looks like
 
@@ -82,15 +79,15 @@ didn't load). Your choices are kept in this browser (`BCDock.v2`), for every cha
 
 How it works:
 - The list of add-ons and their versions is `toolkit.json` on the repository's main branch. Each add-on's file
-  is loaded from its release tag through jsDelivr, the same files the separate scripts `@require`, so a version
+  is loaded from its release tag through jsDelivr, so a version
   never changes under you. If the list can't be fetched (offline), the one from last time is used.
 - The add-ons start a couple of seconds after the game's own scripts are ready.
-- If an add-on's **separate** Tampermonkey script is also installed, that script keeps running it and its menu
-  is greyed out with a note. Turn the separate script off in Tampermonkey to choose here instead.
+- If an older one-add-on script (retired) is still installed, that script keeps running its add-on and the menu
+  is greyed out with a note. Delete the old script in Tampermonkey to choose here instead.
 - Nothing else changes for the add-ons: each one still unloads its previous copy when a new one starts, which is
   what makes switching versions live possible.
-- The script turns this on with `window.BCToolkit = { loader: true };` in its body. Without it (the separate
-  scripts) none of the loader runs. Console: `BCDock.toolkit.status()`, `BCDock.toolkit.set(id, "latest" | "off" |
+- The script turns this on with `window.BCToolkit = { loader: true };` in its body. Without it (the dev loaders) none of
+  the loader runs. Console: `BCDock.toolkit.status()`, `BCDock.toolkit.set(id, "latest" | "off" |
   "0.8.1")`, `BCDock.toolkit.check()`.
 
 ## Reloading the add-ons without reloading the game

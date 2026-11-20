@@ -2,11 +2,10 @@
 // Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
 // BC Dock: a rail of tabs on the screen edge for Little Black Book, Quick Actions and Vibe Link.
 // Clicking a tab slides its panel out beside the rail (one at a time), or runs the add-on's own
-// action (Little Black Book opens its big window). Each add-on's loader @requires this file before the
-// add-on. The first copy to run creates window.BCDock; later copies of the same or an older version
-// leave it alone, and a newer version takes over, keeping the panels already added. See README.md.
-// Loaded by the one BC Toolkit script (bc-toolkit.user.js) instead, it is also the loader: ⚙ → Add-ons picks which
-// add-ons run and at which version.
+// action (Little Black Book opens its big window). The BC Toolkit script (bc-toolkit.user.js) @requires this file,
+// and the dock is then also the loader: ⚙ → Add-ons picks which add-ons run and at which version. The first copy to
+// run creates window.BCDock; later copies of the same or an older version leave it alone, and a newer version takes
+// over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
 	const VERSION = 14; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on)

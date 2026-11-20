@@ -7,17 +7,17 @@ the dock.
 **[Install BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** (all add-ons,
 one script; see [Installing](#installing))
 
-| Add-on | What it does | Only this one |
-|---|---|---|
-| 📓 [Little Black Book](bc-little-black-book/README.md) | Profiles of people you meet (even when they're offline), beep and whisper chats, room logs, saved outfits, online alerts. `/book` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js) |
-| ⚡ [Quick Actions](bc-quick-actions/README.md) | Favourite and recent activities one click away, on yourself or anyone in the room | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quick-actions/quick-actions.user.js) |
-| 〰 [Vibe Link](bc-vibe-link/README.md) | Real toys follow the vibrators your character wears, through Intiface Central, with smooth ramps, patterns and remote control | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-link/vibe-link.user.js) |
-| ✨ [Afterglow](bc-afterglow/README.md) | Counts your orgasms, ruined orgasms, resists, denials and edges, the time since your last orgasm, and your records; share them with people your game permissions allow. `/afterglow` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-afterglow/afterglow.user.js) |
-| 🔔 [Quiet](bc-quiet/README.md) | Mute or unmute every game notification in one tab with a click on the dock; it stays muted until you turn it back on. `/quiet` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quiet/quiet.user.js) |
-| 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-held-remote/held-remote.user.js) |
-| 🔧 [Vibe Fix](bc-vibe-fix/README.md) | Stopgap for an R134 bug where vibrators never turn down: Off and lower levels (and Escalate starting over) set the intensity you picked again. No settings. | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-fix/vibe-fix.user.js) |
+| Add-on | What it does |
+|---|---|
+| 📓 [Little Black Book](bc-little-black-book/README.md) | Profiles of people you meet (even when they're offline), beep and whisper chats, room logs, saved outfits, online alerts. `/book` |
+| ⚡ [Quick Actions](bc-quick-actions/README.md) | Favourite and recent activities one click away, on yourself or anyone in the room |
+| 〰 [Vibe Link](bc-vibe-link/README.md) | Real toys follow the vibrators your character wears, through Intiface Central, with smooth ramps, patterns and remote control |
+| ✨ [Afterglow](bc-afterglow/README.md) | Counts your orgasms, ruined orgasms, resists, denials and edges, the time since your last orgasm, and your records; share them with people your game permissions allow. `/afterglow` |
+| 🔔 [Quiet](bc-quiet/README.md) | Mute or unmute every game notification in one tab with a click on the dock; it stays muted until you turn it back on. `/quiet` |
+| 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` |
+| 🔧 [Vibe Fix](bc-vibe-fix/README.md) | Stopgap for an R134 bug where vibrators never turn down: Off and lower levels (and Escalate starting over) set the intensity you picked again. No settings. |
 
-The [dock](bc-dock/README.md) comes with BC Toolkit (and with each separate script): a rail of tabs with
+The [dock](bc-dock/README.md) comes with BC Toolkit: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
 ("Sky · Bondage Club"), so your game tabs are easy to tell apart.
 
@@ -33,12 +33,13 @@ Each add-on has a menu: **Off**, **Latest** (moves to new releases each time the
 to stay on. Changes apply right away, without reloading the game. Your choices are kept in this browser. See
 [the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more.
 
-**Or one script per add-on:** if you'd rather install only some, use the links in the table's last column. Those update through
-Tampermonkey. Don't mix the two for the same add-on: if an add-on's own script is installed, BC Toolkit leaves
-that add-on to it (its menu says so); turn the separate script off in Tampermonkey to choose its version in the
-dock instead.
+**Had the older one-script-per-add-on installs?** Those scripts are retired and no longer update. Delete them in
+Tampermonkey (Dashboard: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet, Held Remote, Vibe Fix) and
+keep only BC Toolkit. Your settings and saved data stay: they belong to the add-ons, not the scripts. Until you
+do, BC Toolkit leaves each of those add-ons to its old script, and its menu says so.
 
-Either way, the add-ons work with the usual add-ons (WCE, BCX, LSCG, ...) and use [ModSDK](https://github.com/Jomshir98/bondage-club-mod-sdk) hooks only, never overwriting game
+The add-ons work with the usual add-ons (WCE, BCX, LSCG, ...) and use
+[ModSDK](https://github.com/Jomshir98/bondage-club-mod-sdk) hooks only, never overwriting game
 functions.
 
 ## Good to know
@@ -72,21 +73,19 @@ loader that `@require`s the files from disk instead of from a release:
 Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`, `ag-vX.Y.Z`,
 `qt-vX.Y.Z`, `hr-vX.Y.Z`, `vf-vX.Y.Z`.
 
-1. Bump the version in the add-on's `MOD_INFO` and in its `.user.js` (`@version` and the tag in
-   both `@require` lines).
+1. Bump the version in the add-on's `MOD_INFO` and update its README.
 2. Commit, then tag that commit (`git tag qa-v0.5.2`).
 3. Run `node tools/toolkit-list.mjs` to add the new version to `toolkit.json` (the list BC Toolkit's menus are
    filled from), and commit that.
 4. Push the commits and the tag.
 
-The loaders load the add-on and the dock from that tag through jsDelivr, so a release never changes
-under anyone. Tampermonkey sees the new `@version` on `main` and offers the update; BC Toolkit users on
-**Latest** get it the next time the game loads.
+BC Toolkit loads each add-on from its tag through jsDelivr, so a release never changes under anyone.
+Everyone on **Latest** gets it the next time the game loads.
 
 A new add-on also needs an entry in `toolkit.json` (id, name, icon, file path, the name of its `window` object, tag
 prefix). A change to the dock is released with BC Toolkit itself: bump `@version` and the `@require` tag in
-`bc-toolkit.user.js` and tag that commit `tk-vX.Y.Z`. (The separate scripts get the new dock with their next
-release; the newest dock on the page takes over.)
+`bc-toolkit.user.js` and tag that commit `tk-vX.Y.Z`. Tampermonkey sees the new `@version` on `main` and
+offers the update.
 
 ## License
 
