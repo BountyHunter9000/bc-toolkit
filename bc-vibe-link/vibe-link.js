@@ -6,7 +6,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeLink", fullName: "Vibe Link", version: "0.14.0" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.14.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -2356,7 +2357,7 @@
 
 		function mount() {
 			if (panel) return;
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader), so there's no panel");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no panel");
 			document.head.append(h("style", { id: "vl-style" }, CSS));
 			panel = BCDock.add({ id: "vibe-link", title: "Vibe Link", icon: "〰", order: 30, version: MOD_INFO.version, width: 230, minWidth: 190, maxWidth: 300, alignStart: true, open: !!local.open, onToggle: () => render() });
 			root = panel.body;
