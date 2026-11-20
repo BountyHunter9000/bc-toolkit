@@ -8,7 +8,7 @@
 // over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 17; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page
+	const VERSION = 18; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail)
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -33,10 +33,15 @@
 	const kids = (...xs) => xs.flat().filter((x) => x != null && x !== false);
 
 	// ---------- saved state (this browser only) ----------
-	let state = { side: "left", y: null, x: null, opacity: 0.94, widths: {}, active: null, theme: { preset: "amethyst" } };
+	let state = { side: "left", y: null, x: null, opacity: 0.94, widths: {}, active: null, float: {}, theme: { preset: "amethyst" } };
 	try {
 		const s = JSON.parse(localStorage.getItem(STORE) || "null");
 		if (s && typeof s === "object") state = { ...state, ...s, widths: { ...(s.widths || {}) } };
+		// Floating windows: panel id -> { x, y, open }
+		const fl = {};
+		for (const [id, v] of Object.entries(s?.float && typeof s.float === "object" ? s.float : {}))
+			if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) fl[id] = { x: v.x, y: v.y, open: !!v.open };
+		state.float = fl;
 	} catch {}
 	const SIDES = ["left", "right", "top", "bottom"];
 	if (!SIDES.includes(state.side)) state.side = "left";
@@ -159,8 +164,8 @@
 #bcd-rail{position:fixed;z-index:10000;display:flex;flex-direction:column;gap:4px;user-select:none;touch-action:none}
 #bcd-rail.left{left:0}#bcd-rail.right{right:0}#bcd-rail.top{top:0;flex-direction:row}#bcd-rail.bottom{bottom:0;flex-direction:row}
 #bcd-rail.empty{display:none}
-#bcd-rail,#bcd-fly{transition:opacity .2s}
-.bcd-yield #bcd-rail,.bcd-yield #bcd-fly{opacity:.12;pointer-events:none}
+#bcd-rail,:is(#bcd-fly,.bcd-float){transition:opacity .2s}
+.bcd-yield #bcd-rail,.bcd-yield :is(#bcd-fly,.bcd-float){opacity:.12;pointer-events:none}
 .bcd-tab{position:relative;width:${TAB}px;height:${TAB}px;display:flex;align-items:center;justify-content:center;font:22px/1 sans-serif;cursor:pointer;
 	background:var(--bcd-tab);border:2px solid var(--bcd-line);box-shadow:0 3px 10px #0008;opacity:.85;color:var(--bcd-text)}
 #bcd-rail.left .bcd-tab{border-left:none;border-radius:0 12px 12px 0}
@@ -180,20 +185,20 @@
 .bcd-badge:empty{display:none}
 .bcd-dot{border-radius:50%;flex:none;background:#666;width:9px;height:9px}
 .bcd-dot.none{display:none}.bcd-dot.on{background:#4c4}.bcd-dot.wait{background:#db4}.bcd-dot.bad{background:#d44}
-#bcd-fly{position:fixed;z-index:10000;display:flex;flex-direction:column;max-height:85vh;background:rgb(var(--bcd-bg) / var(--bcd-opacity));color:var(--bcd-text);
+:is(#bcd-fly,.bcd-float){position:fixed;z-index:10000;display:flex;flex-direction:column;max-height:85vh;background:rgb(var(--bcd-bg) / var(--bcd-opacity));color:var(--bcd-text);
 	border:1px solid var(--bcd-line);border-radius:8px;font:13px/1.35 system-ui,sans-serif;box-shadow:0 6px 24px #0008}
-#bcd-fly.closed{display:none}
-#bcd-fly.top,#bcd-fly.bottom{max-height:calc(100vh - ${TAB + 16}px)}
-#bcd-fly *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--bcd-line) transparent}
-#bcd-fly button{font:inherit;color:var(--bcd-text);background:var(--bcd-ctl);border:1px solid var(--bcd-ctl-line);border-radius:4px;padding:2px 8px;cursor:pointer}
-#bcd-fly button:hover:not(:disabled){background:var(--bcd-ctl-hover)}
-#bcd-fly button:disabled{opacity:.5;cursor:default}
-#bcd-fly input[type=text],#bcd-fly input[type=number],#bcd-fly select,#bcd-fly textarea{font:inherit;color:var(--bcd-text);background:var(--bcd-ctl);border:1px solid var(--bcd-ctl-line);border-radius:4px;padding:2px 4px}
-#bcd-fly .bcd-ico{background:none;border:none;padding:0 4px;color:#bbb}
-#bcd-fly .bcd-ico:hover:not(:disabled){background:var(--bcd-ctl-hover);color:#fff}
+:is(#bcd-fly,.bcd-float).closed{display:none}
+:is(#bcd-fly,.bcd-float).top,:is(#bcd-fly,.bcd-float).bottom{max-height:calc(100vh - ${TAB + 16}px)}
+:is(#bcd-fly,.bcd-float) *{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:var(--bcd-line) transparent}
+:is(#bcd-fly,.bcd-float) button{font:inherit;color:var(--bcd-text);background:var(--bcd-ctl);border:1px solid var(--bcd-ctl-line);border-radius:4px;padding:2px 8px;cursor:pointer}
+:is(#bcd-fly,.bcd-float) button:hover:not(:disabled){background:var(--bcd-ctl-hover)}
+:is(#bcd-fly,.bcd-float) button:disabled{opacity:.5;cursor:default}
+:is(#bcd-fly,.bcd-float) input[type=text],:is(#bcd-fly,.bcd-float) input[type=number],:is(#bcd-fly,.bcd-float) select,:is(#bcd-fly,.bcd-float) textarea{font:inherit;color:var(--bcd-text);background:var(--bcd-ctl);border:1px solid var(--bcd-ctl-line);border-radius:4px;padding:2px 4px}
+:is(#bcd-fly,.bcd-float) .bcd-ico{background:none;border:none;padding:0 4px;color:#bbb}
+:is(#bcd-fly,.bcd-float) .bcd-ico:hover:not(:disabled){background:var(--bcd-ctl-hover);color:#fff}
 .bcd-head{display:flex;align-items:center;gap:6px;padding:5px 6px 5px 10px;border-bottom:1px solid var(--bcd-line-soft);flex:none;user-select:none}
 .bcd-title{font-weight:600;white-space:nowrap;display:flex;gap:5px}
-#bcd-fly.narrow .bcd-tt,#bcd-fly.narrow .bcd-ver{display:none}
+:is(#bcd-fly,.bcd-float).narrow .bcd-tt,:is(#bcd-fly,.bcd-float).narrow .bcd-ver{display:none}
 .bcd-ver{color:var(--bcd-muted);font-size:11px;white-space:nowrap}
 .bcd-ver:empty{display:none}
 .bcd-cfg .bcd-vers{display:grid;grid-template-columns:auto 1fr;gap:1px 10px;font-size:11px}
@@ -204,7 +209,7 @@
 .bcd-bodywrap{overflow:auto;flex:1;min-height:0}
 .bcd-body{padding:6px 10px 10px}
 .bcd-sizer{position:absolute;top:0;bottom:0;width:8px;cursor:ew-resize}
-#bcd-fly.left .bcd-sizer,#bcd-fly.top .bcd-sizer,#bcd-fly.bottom .bcd-sizer{right:-4px}#bcd-fly.right .bcd-sizer{left:-4px}
+:is(#bcd-fly,.bcd-float).left .bcd-sizer,:is(#bcd-fly,.bcd-float).top .bcd-sizer,:is(#bcd-fly,.bcd-float).bottom .bcd-sizer{right:-4px}:is(#bcd-fly,.bcd-float).right .bcd-sizer{left:-4px}
 .bcd-cfg{font-size:12px}
 .bcd-cfg .row{display:flex;align-items:center;gap:4px;margin:3px 0;flex-wrap:wrap}
 .bcd-cfg .sides{display:grid;grid-template-columns:repeat(4,1fr);gap:3px;margin:3px 0}
@@ -212,7 +217,7 @@
 .bcd-cfg .hint{color:#999;font-size:11px}
 .bcd-cfg h4{margin:8px 0 2px;font-size:10px;color:var(--bcd-muted);text-transform:uppercase;letter-spacing:.05em}
 .bcd-cfg .themes{display:grid;grid-template-columns:repeat(2,1fr);gap:3px;margin:3px 0}
-#bcd-fly input[type=range]{accent-color:var(--bcd-accent)}
+:is(#bcd-fly,.bcd-float) input[type=range]{accent-color:var(--bcd-accent)}
 .bcd-cfg .themes button{display:flex;align-items:center;gap:4px;padding:2px 4px;font-size:11px;overflow:hidden;white-space:nowrap}
 .bcd-cfg .themes button.on{border-color:var(--bcd-accent);background:var(--bcd-tab-act)}
 .bcd-cfg .sw{display:inline-flex;flex:none;border-radius:3px;overflow:hidden;border:1px solid #0006}
@@ -234,6 +239,12 @@
 #bcd-ext .row{display:flex;align-items:center;gap:.5em;margin:.4em 0;flex-wrap:wrap}
 .bcd-tab.cfg.upd::after{content:"";position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:#5c8;box-shadow:0 0 4px #5c8}
 .bcd-cfg input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid var(--bcd-ctl-line);border-radius:4px;background:var(--bcd-ctl);cursor:pointer}
+
+.bcd-float .bcd-sizer{right:-4px}
+.bcd-float{max-height:calc(100vh - 8px)}
+:is(#bcd-fly,.bcd-float) .bcd-head{cursor:move}
+.bcd-lock #bcd-fly .bcd-head{cursor:default}
+:is(#bcd-fly,.bcd-float) .bcd-head :is(button,input,select,a){cursor:pointer}
 `;
 
 	// ---------- DOM ----------
@@ -300,6 +311,23 @@
 			),
 			el("div", { class: "sides" }, SIDES.map((sd) => el("button", { onclick: () => setSide(sd), style: state.side === sd ? "background:var(--bcd-line)" : "" }, sd[0].toUpperCase() + sd.slice(1)))),
 			el("div", { class: "hint" }, "Drag a tab to move the rail along or to another edge."),
+				el("h4", {}, "Panel windows"),
+				el(
+					"label",
+					{ class: "row", title: "Panels always open beside the rail, and their title bars can't be dragged away" },
+					el("input", { type: "checkbox", checked: !!state.lockDock, onchange: (e) => setLockDock(e.target.checked) }),
+					"Keep panels on the rail"
+				),
+				el(
+					"div",
+					{ class: "row" },
+					el(
+						"button",
+						{ disabled: !Object.keys(state.float).length, title: "Every floating window goes back beside the rail, and the places they were are forgotten", onclick: () => dockAll() },
+						Object.keys(state.float).length ? `Put all back on the rail (${Object.keys(state.float).length})` : "Put all back on the rail"
+					)
+				),
+				el("div", { class: "hint" }, state.lockDock ? "Turn this off to drag a panel's title bar away and float it anywhere." : "Drag a panel's title bar away to float it anywhere; ⇤ in its title bar puts it back."),
 			...themeSection(),
 			el("h4", {}, "Browser tab"),
 			el(
@@ -412,11 +440,13 @@
 			p.icon.textContent = p.spec.icon || t.slice(0, 2);
 			updateTip(p);
 			if (active === p.spec.id) setFlyTitle(p);
+			if (p.win) winHead(p);
 		};
 		p.setSummary = (t) => {
 			p.sum = t == null ? "" : String(t);
 			updateTip(p);
 			if (active === p.spec.id && flySum.textContent !== p.sum) (flySum.textContent = p.sum), (flySum.title = p.sum);
+			if (p.win && p.win.sum.textContent !== p.sum) (p.win.sum.textContent = p.sum), (p.win.sum.title = p.sum);
 		};
 		p.setBadge = (b) => {
 			b = b == null || b === 0 || b === "" ? null : String(b);
@@ -430,6 +460,8 @@
 			if (p.visible === v) return;
 			p.visible = v;
 			p.tab.classList.toggle("hidden", !v);
+			if (p.win && !v) dropWin(p);
+			if (v && !p.win && state.float[p.spec.id]?.open && !p.spec.onClick) showFloat(p);
 			if (!v && active === p.spec.id) {
 				// Hidden by the add-on, not closed by the user: remember to reopen it
 				setActive(null);
@@ -460,7 +492,7 @@
 
 	function updateTip(p) {
 		const v = verText(p);
-		p.tab.title = `${p.spec.title}${v ? ` ${v}` : ""}${p.sum ? ` · ${p.sum}` : ""}${p.spec.onClick ? "" : "\nClick to open or close · drag to move the rail"}`;
+		p.tab.title = `${p.spec.title}${v ? ` ${v}` : ""}${p.sum ? ` · ${p.sum}` : ""}${p.spec.onClick ? "" : "\nClick to open or close · drag to move the rail\nDrag a panel's title bar to float it anywhere"}`;
 	}
 
 	// A press that doesn't move is a click; moving drags the whole rail (along the edge, or across to the other side)
@@ -502,6 +534,9 @@
 					} catch (err) {
 						console.warn("[BCDock]", p.spec.id, "click failed", err);
 					}
+				} else if (isFloating(p.spec.id)) {
+					if (p.win) closeFloat(p.spec.id);
+					else if (p.visible) showFloat(p);
 				} else setActive(active === p.spec.id ? null : p.spec.id);
 			};
 			p.tab.addEventListener("pointermove", move);
@@ -514,6 +549,11 @@
 
 	function setActive(id) {
 		if (id != null && !panelOf(id)) id = null;
+		if (id != null && isFloating(id)) {
+			const fp = panels.get(id);
+			if (fp.visible && !fp.win) showFloat(fp);
+			return;
+		}
 		if (id === active) return;
 		const before = active;
 		active = id;
@@ -535,6 +575,7 @@
 		flyBodyWrap.replaceChildren(p.body);
 		swapActions(p.actions);
 		fly.classList.remove("closed");
+		raise(fly);
 		if (p === cfgPanel) renderCfg();
 		else notifyToggle(p, true);
 		place();
@@ -582,6 +623,7 @@
 			rail.style.top = `${Math.max(0, Math.min(innerHeight - h, y))}px`;
 			rail.style.left = "";
 		}
+		for (const fp of panels.values()) if (fp.win) placeFloat(fp);
 		if (fly.classList.contains("closed")) return;
 		const p = panelOf(active);
 		const w = clampW(p, state.widths[active] || p?.spec.width || DEFAULT_W);
@@ -636,6 +678,200 @@
 		addEventListener("pointerup", up);
 	});
 
+	// ---------- floating windows ----------
+	// Dragging a panel's title bar away floats it: it gets a window of its own that stays where you put it and can stay
+	// open next to the docked panel and other floating ones. Its tab on the rail opens and closes it; ⇤ in its title
+	// bar puts it back on the rail. Which panels float, where, and whether they were open is remembered. Little Black
+	// Book (its own big window) and ⚙ stay as they are.
+	let zTop = 10000;
+	const raise = (node) => (node.style.zIndex = String(++zTop));
+	const isFloating = (id) => id !== CFG && !state.lockDock && !!state.float[id] && !!panels.get(id) && !panels.get(id).spec.onClick;
+
+	// A press that moves a few pixels becomes a drag (presses on buttons and fields are left to them)
+	function onDrag(node, h) {
+		node.addEventListener("pointerdown", (e) => {
+			if (e.button !== 0 || e.target.closest("button,input,select,textarea,a,label")) return;
+			const sx = e.clientX;
+			const sy = e.clientY;
+			let ctx = null;
+			const move = (ev) => {
+				if (!ctx) {
+					if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
+					ctx = h.start(sx, sy) || "no";
+				}
+				if (ctx !== "no") {
+					ev.preventDefault();
+					h.move(ctx, ev);
+				}
+			};
+			const up = () => {
+				removeEventListener("pointermove", move);
+				removeEventListener("pointerup", up);
+				removeEventListener("pointercancel", up);
+				if (ctx && ctx !== "no") h.end?.(ctx);
+			};
+			addEventListener("pointermove", move);
+			addEventListener("pointerup", up);
+			addEventListener("pointercancel", up);
+		});
+	}
+
+	function winHead(p) {
+		const w = p.win;
+		w.title.replaceChildren(p.spec.icon ? el("span", {}, p.spec.icon) : "", el("span", { class: "bcd-tt" }, p.spec.title));
+		w.title.title = `${p.spec.title}${verText(p) ? ` ${verText(p)}` : ""}`;
+		w.ver.textContent = verText(p);
+		w.sum.textContent = w.sum.title = p.sum || "";
+	}
+
+	function makeWin(p) {
+		const id = p.spec.id;
+		const w = {
+			title: el("span", { class: "bcd-title" }),
+			ver: el("span", { class: "bcd-ver" }),
+			sum: el("span", { class: "bcd-sum" }),
+			body: el("div", { class: "bcd-bodywrap" }),
+			sizer: el("div", { class: "bcd-sizer", title: "Drag to change the width" }),
+			dockBtn: el("button", { class: "bcd-ico", title: "Put it back on the rail", onclick: () => dockPanel(id) }, "⇤"),
+		};
+		w.head = el("div", { class: "bcd-head", title: "Drag to move" }, w.title, w.ver, w.sum, w.dockBtn, el("button", { class: "bcd-ico", title: "Close (its tab opens it again)", onclick: () => closeFloat(id) }, "✕"));
+		w.el = el("div", { class: "bcd-float", "data-id": id }, w.head, w.body, w.sizer);
+		for (const ev of ["keydown", "keyup", "keypress", "wheel"]) w.el.addEventListener(ev, (e) => e.stopPropagation());
+		w.el.addEventListener("pointerdown", () => raise(w.el), true);
+		onDrag(w.head, {
+			start: (sx, sy) => ({ id, dx: sx - state.float[id].x, dy: sy - state.float[id].y }),
+			move: (c, ev) => moveFloat(c, ev),
+			end: () => save(),
+		});
+		onDrag(w.sizer, {
+			start: (sx) => ({ w: w.el.offsetWidth, sx }),
+			move: (c, ev) => {
+				state.widths[id] = clampW(p, c.w + ev.clientX - c.sx);
+				placeFloat(p);
+			},
+			end: () => save(),
+		});
+		return w;
+	}
+
+	function moveFloat(c, ev) {
+		const f = state.float[c.id];
+		const p = panels.get(c.id);
+		if (!f || !p?.win) return;
+		f.x = Math.round(ev.clientX - c.dx);
+		f.y = Math.round(ev.clientY - c.dy);
+		placeFloat(p);
+	}
+
+	// Kept on screen: the title bar always stays reachable
+	function placeFloat(p) {
+		const f = state.float[p.spec.id];
+		if (!f || !p.win) return;
+		const w = clampW(p, state.widths[p.spec.id] || p.spec.width || DEFAULT_W);
+		p.win.el.className = `bcd-float${w < 250 ? " narrow" : ""}`;
+		p.win.el.style.width = `${w}px`;
+		f.x = Math.max(0, Math.min(innerWidth - Math.min(w, innerWidth), f.x));
+		f.y = Math.max(0, Math.min(innerHeight - 40, f.y));
+		p.win.el.style.left = `${f.x}px`;
+		p.win.el.style.top = `${f.y}px`;
+	}
+
+	function showFloat(p, notify = true) {
+		const id = p.spec.id;
+		if (!state.float[id]) return;
+		if (!p.win) {
+			p.win = makeWin(p);
+			document.body.append(p.win.el);
+		}
+		winHead(p);
+		p.win.dockBtn.before(p.actions);
+		p.actions.classList.add("bcd-actions");
+		p.win.body.replaceChildren(p.body);
+		state.float[id].open = true;
+		save();
+		p.tab.classList.add("act");
+		raise(p.win.el);
+		placeFloat(p);
+		if (notify) notifyToggle(p, true);
+	}
+
+	// The window goes; the body and actions stay with the panel for wherever it shows next
+	function dropWin(p) {
+		if (!p.win) return;
+		p.win.el.remove();
+		p.win = null;
+		p.tab.classList.remove("act");
+	}
+
+	function closeFloat(id) {
+		const p = panels.get(id);
+		if (!p?.win) return;
+		dropWin(p);
+		if (state.float[id]) state.float[id].open = false;
+		save();
+		notifyToggle(p, false);
+	}
+
+	// Off the rail: from the flyout (dragging its title bar) or straight into a window
+	function floatPanel(id, x, y) {
+		const p = panels.get(id);
+		if (!p || p.spec.onClick) return false;
+		state.float[id] = { x: Math.round(x), y: Math.round(y), open: true };
+		if (active === id) {
+			// Moves out of the flyout without the add-on seeing it close
+			const ph = el("span", { class: "bcd-actions" });
+			if (actionsSlot.isConnected) actionsSlot.replaceWith(ph);
+			actionsSlot = ph;
+			active = null;
+			state.active = null;
+			fly.classList.add("closed");
+			flyBodyWrap.replaceChildren();
+			showFloat(p, false);
+		} else if (p.visible) showFloat(p);
+		save();
+		return true;
+	}
+
+	// Back on the rail; an open window opens there instead
+	function dockPanel(id, reopen = true) {
+		const p = panels.get(id);
+		const was = !!p?.win;
+		if (p) dropWin(p);
+		delete state.float[id];
+		save();
+		if (p && was && reopen) setActive(id);
+		else if (p && was) notifyToggle(p, false);
+	}
+
+	// ⚙: every floating panel back on the rail, places forgotten (open windows stay closed, ready on their tabs)
+	function dockAll() {
+		for (const id of Object.keys(state.float)) dockPanel(id, false);
+		state.float = {};
+		save();
+		if (active === CFG) renderCfg();
+	}
+	function setLockDock(on) {
+		state.lockDock = !!on;
+		document.documentElement.classList.toggle("bcd-lock", state.lockDock);
+		if (on) dockAll();
+		save();
+		if (active === CFG) renderCfg();
+	}
+
+	// Dragging the docked flyout's title bar floats the panel in it
+	onDrag(fly.querySelector(".bcd-head"), {
+		start: (sx, sy) => {
+			if (!active || active === CFG || state.lockDock) return null;
+			const r = fly.getBoundingClientRect();
+			const id = active;
+			if (!floatPanel(id, r.left, r.top)) return null;
+			return { id, dx: sx - r.left, dy: sy - r.top };
+		},
+		move: (c, ev) => moveFloat(c, ev),
+		end: () => save(),
+	});
+	fly.addEventListener("pointerdown", () => raise(fly), true);
+
 	const onResize = () => place();
 	addEventListener("resize", onResize);
 	const ro = new ResizeObserver(() => place());
@@ -663,7 +899,10 @@
 			const c = document.getElementById("MainCanvas")?.getBoundingClientRect();
 			if (c && c.width) {
 				const band = { top: c.top, bottom: c.top + c.height * POPUP_BAND, left: c.left, right: c.right };
-				yieldNow = overlapsBand(rail.getBoundingClientRect(), band) || (!fly.classList.contains("closed") && overlapsBand(fly.getBoundingClientRect(), band));
+				yieldNow =
+					overlapsBand(rail.getBoundingClientRect(), band) ||
+					(!fly.classList.contains("closed") && overlapsBand(fly.getBoundingClientRect(), band)) ||
+					[...panels.values()].some((fp) => fp.win && overlapsBand(fp.win.el.getBoundingClientRect(), band));
 			}
 		}
 		if (yieldNow !== document.documentElement.classList.contains("bcd-yield")) document.documentElement.classList.toggle("bcd-yield", yieldNow);
@@ -710,7 +949,9 @@
 		panels.set(spec.id, p);
 		insertSorted(p);
 		// Reopen what was open last time (once it's visible)
-		if (state.active === spec.id && !active && p.visible && !spec.onClick) setActive(spec.id);
+		if (isFloating(spec.id)) {
+			if (state.float[spec.id].open && p.visible) showFloat(p);
+		} else if (state.active === spec.id && !active && p.visible && !spec.onClick) setActive(spec.id);
 		layoutSoon();
 		return handleFor(spec.id);
 	}
@@ -724,6 +965,8 @@
 			state.active = id;
 			save();
 		}
+		// A floating window goes with it; it stays marked open, so the add-on's new copy reopens it
+		dropWin(p);
 		p.tab.remove();
 		panels.delete(id);
 		layoutSoon();
@@ -732,6 +975,12 @@
 	function setOpen(id, open) {
 		const p = panels.get(id);
 		if (!p || p.spec.onClick) return;
+		if (isFloating(id)) {
+			if (!open) closeFloat(id);
+			else if (p.visible && !p.win) showFloat(p);
+			else if (p.win) raise(p.win.el);
+			return;
+		}
 		if (open) {
 			if (!p.visible) return;
 			setActive(id);
@@ -1413,6 +1662,7 @@
 	document.head.append(style);
 	rail.append(cfgTab);
 	document.body.append(rail, fly);
+	document.documentElement.classList.toggle("bcd-lock", !!state.lockDock);
 	document.documentElement.style.setProperty("--bcd-opacity", String(state.opacity));
 
 	// Take over from an older dock, keeping its panels' elements so the add-ons' references stay valid
@@ -1425,6 +1675,7 @@
 			insertSorted(p);
 		}
 		reopen = taken.active || null;
+		for (const p of panels.values()) if (isFloating(p.spec.id) && state.float[p.spec.id].open && p.visible) showFloat(p, false);
 	}
 	place();
 	titleStart();
@@ -1433,7 +1684,7 @@
 		version: VERSION,
 		theme: () => themeColors(), // current palette (CSS variable -> value); "bcdock:theme" fires on window when it changes
 		add,
-		isOpen: (id) => active === id && !!panels.get(id),
+		isOpen: (id) => (active === id || !!panels.get(id)?.win) && !!panels.get(id),
 		// A marker in front of the name in the browser tab (an emoji or two), e.g. setTitleMark("quiet", "🔕"); null
 		// removes it. Several add-ons' markers show side by side.
 		setTitleMark,
@@ -1441,6 +1692,7 @@
 			state.side = "left";
 			state.y = state.x = null;
 			state.widths = {};
+			dockAll();
 			save();
 			place();
 			if (active === CFG) renderCfg();
@@ -1484,6 +1736,8 @@
 			document.documentElement.classList.remove("bcd-yield");
 			devStop();
 			titleStop();
+			for (const p of panels.values()) p.win?.el.remove();
+			document.documentElement.classList.remove("bcd-lock");
 			rail.remove();
 			fly.remove();
 			style.remove();

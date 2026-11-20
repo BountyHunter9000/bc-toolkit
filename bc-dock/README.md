@@ -42,9 +42,15 @@ settings, storage and logic.
   drag. A background too light for the add-ons' light text is darkened automatically. Friend
   Manager's window, Vibe Link and Quick Actions all follow the theme.
 - Drag a panel's outer edge to change its width (kept per panel).
+- **Floating windows:** drag a panel's title bar away from the rail and it gets a window of its own, anywhere on
+  the screen. A floating window stays open next to the docked panel and other floating ones. Its tab opens and
+  closes it, and **⇤** in its title bar puts it back on the rail. Which panels float, where they are and whether
+  they're open are remembered. In ⚙ → **Panel windows**, **Keep panels on the rail** puts them all back and stops
+  title bars from being dragged away, and **Put all back on the rail** puts them back and forgets where they were
+  (so does **Reset position**). Little Black Book has its own window, and ⚙ always stays on the rail.
 - Tabs hide when their add-on has nothing to show (Quick Actions outside chat rooms, everything when
   logged out). A panel hidden that way comes back open when its tab returns.
-- Position, side, opacity, theme, widths and the open panel are kept in this browser's `localStorage`
+- Position, side, opacity, theme, widths, floating windows and the open panel are kept in this browser's `localStorage`
   (`BCDock.v2`).
 - Tabs stay in a fixed order: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet, Held Remote.
 
