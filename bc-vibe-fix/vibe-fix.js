@@ -1,30 +1,40 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
-// Vibe Fix for Bondage Club
-// In R134, a vibrator's intensity can only go up: picking Off, or a lower level, changes the mode's name but leaves
-// the vibrator running at the highest level it reached. This puts the intensity you picked in place.
+// Game Fixes (formerly Vibe Fix) for Bondage Club
+// Stopgaps for bugs in the game itself, each a small ModSDK hook that lets the game's own code do the work and stops
+// doing anything once the game is fixed. (The folder, file, window.VibeFix and the vf-v tags keep the old name, so
+// earlier versions and the BC Toolkit menus carry on working.)
 //
-// Why it happens: vibrators keep a default intensity (-1, off) in their item data. When the mode changes, the game
-// leaves the previous intensity out of what it removes, because it's one of those defaults (ExtendedItemSetOption),
-// then merges old and new intensity by taking the larger one (the Intensity property's merge rule). So the old,
-// higher value always wins. The fix clears the old intensity just before the game applies the new one, so the new one
-// replaces it. Nothing else about the change is touched, and it's still the game that sends it.
+// 1. Vibrators (R134): a vibrator's intensity could only go up. Picking Off, or a lower level, changed the mode's name
+//    but left the vibrator running at the highest level it reached. Vibrators keep a default intensity (-1, off) in
+//    their item data; when the mode changes, the game leaves the previous intensity out of what it removes, because
+//    it's one of those defaults (ExtendedItemSetOption), then merges old and new intensity by taking the larger one
+//    (the Intensity property's merge rule), so the old, higher value always wins. The fix clears the old intensity
+//    just before the game applies the new one. Nothing else about the change is touched, and the game still sends it.
+//
+// 2. Lock picking (R134): picking a lock successfully never unlocked it. The Pick lock button starts the minigame
+//    without setting DialogStruggleAction, and DialogStruggleStop, which the minigame calls at the end, returns on its
+//    first line when that's empty, before it reaches the unlock. The fix sets it for a lock pick that ends (won or
+//    lost, not interrupted) and clears it again afterwards, so the game's own code unlocks the item, posts the usual
+//    "picked the lock" message, adds the lock-picking skill and goes back to the item list.
 (async () => {
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Vibe Fix", version: "0.1.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
-	const TAG = "[VibeFix]";
+	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Game Fixes", version: "0.2.0", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
+	const TAG = "[GameFixes]";
 
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.VibeFix && typeof window.VibeFix.unload === "function") window.VibeFix.unload();
 
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-	while (typeof bcModSdk === "undefined" || typeof ExtendedItemSetProperty === "undefined") await sleep(250);
+	while (typeof bcModSdk === "undefined" || typeof ExtendedItemSetProperty === "undefined" || typeof DialogStruggleStop === "undefined") await sleep(250);
 
 	const mod = bcModSdk.registerMod(MOD_INFO);
-	let fixed = 0;
+	let fixed = 0; // vibrator intensity changes put right
+	let picked = 0; // lock picks let through to the game's unlock
 
+	// ---------- 1. vibrators ----------
 	// ExtendedItemSetProperty(C, item, previousProperty, newProperty, push, refresh): removes previousProperty from the
 	// item's properties, adds newProperty, and (with push) sends the item to the room. Only when the new properties set
 	// an intensity, the item has a different one, and the previous properties don't mention it (the bug: it was left
@@ -50,9 +60,37 @@
 		return next(args);
 	});
 
+	// ---------- 2. lock picking ----------
+	// DialogStruggleStop(C, Game, { Progress, PrevItem, NextItem, Skill, Attempts, Interrupted, Auto }). The game's
+	// DialogStruggleAction is a script-level variable, readable and writable from here by name. Only for a lock pick
+	// that wasn't interrupted, and only while the game hasn't set an action itself (when it's fixed, it will).
+	mod.hookFunction("DialogStruggleStop", 0, (args, next) => {
+		let set = false;
+		try {
+			const [, game, data] = args;
+			if (game === "LockPick" && !data?.Interrupted && typeof DialogStruggleAction !== "undefined" && !DialogStruggleAction) {
+				DialogStruggleAction = "ActionPick";
+				set = true;
+				if (data?.Progress >= 100) picked++;
+			}
+		} catch (e) {
+			console.warn(TAG, e);
+		}
+		try {
+			return next(args);
+		} finally {
+			// Leave nothing behind for the next struggle
+			if (set)
+				try {
+					if (DialogStruggleAction === "ActionPick") DialogStruggleAction = null;
+				} catch {}
+		}
+	});
+
 	window.VibeFix = {
 		version: MOD_INFO.version,
-		fixed: () => fixed, // how many intensity changes it has put right since the page loaded
+		fixed: () => fixed, // how many vibrator intensity changes it has put right since the page loaded
+		picked: () => picked, // how many successful lock picks it has let through to the unlock
 		unload() {
 			mod.unload();
 			delete window.VibeFix;
