@@ -1,6 +1,7 @@
 # Dock
 
-*Part of [BC Toolkit](../README.md). Not installed on its own: every add-on's loader brings it along.*
+*Part of [BC Toolkit](../README.md). Not installed on its own: the BC Toolkit script, and every add-on's own
+script, bring it along.*
 
 A small shared frame that Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet and Held Remote put their panels and buttons in, so they
 stop floating separately and overlapping the game. It's only the frame: each add-on keeps its own
@@ -53,17 +54,44 @@ settings, storage and logic.
 ## Browser tab title
 
 The dock puts the logged-in character's name (their nickname, if they've set one) in the browser tab, so your
-game tabs can be told apart: **(3) Kira · Bondage Club**. The game's own count of unread notifications stays in
+game tabs can be told apart: **(3) Sky · Bondage Club**. The game's own count of unread notifications stays in
 front. Logged out, the tab says Bondage Club as usual. Switch it off in **⚙ → Browser tab → Character name in the
 tab**.
 
 Add-ons can put a small marker in front of the name: Quiet shows **🔕** while the tab is muted, and Vibe Link
-shows **〰** while it's connected to Intiface, e.g. **🔕〰 Kira · Bondage Club**.
+shows **〰** while it's connected to Intiface, e.g. **🔕〰 Sky · Bondage Club**.
 
 - The dock watches the page's `<title>` and adds the name each time the game (or another add-on) writes it. No game
   function is hooked, and it keeps up in a background tab.
 - For add-on authors: `BCDock.setTitleMark(id, text)` sets a marker (an emoji or two) under your add-on's id; `null`
   removes it. Check that it exists first (`window.BCDock?.setTitleMark?.(…)`): docks before version 13 don't have it.
+
+## One script for all add-ons
+
+With the **BC Toolkit** script (`bc-toolkit.user.js`) the dock is also the loader. Every add-on runs at its
+latest release unless you choose otherwise: ⚙ starts with **Add-ons**, a menu for each add-on:
+
+- **Off**: not loaded. Switching an add-on off stops it straight away (its tab and hooks go).
+- **Latest (x.y.z)**: the newest release. When a new one comes out, it's used the next time the game loads, or
+  right away with **Check for updates**.
+- **A version** (v0.8.0, …): stays on that release until you pick something else. Handy when a new release
+  misbehaves. An older version may not understand what a newer one saved, so going back is best kept short.
+
+Changes apply right away, without reloading the game. The line under each menu says what's running (or why it
+didn't load). Your choices are kept in this browser (`BCDock.v2`), for every character and tab.
+
+How it works:
+- The list of add-ons and their versions is `toolkit.json` on the repository's main branch. Each add-on's file
+  is loaded from its release tag through jsDelivr, the same files the separate scripts `@require`, so a version
+  never changes under you. If the list can't be fetched (offline), the one from last time is used.
+- The add-ons start a couple of seconds after the game's own scripts are ready.
+- If an add-on's **separate** Tampermonkey script is also installed, that script keeps running it and its menu
+  is greyed out with a note. Turn the separate script off in Tampermonkey to choose here instead.
+- Nothing else changes for the add-ons: each one still unloads its previous copy when a new one starts, which is
+  what makes switching versions live possible.
+- The script turns this on with `window.BCToolkit = { loader: true };` in its body. Without it (the separate
+  scripts) none of the loader runs. Console: `BCDock.toolkit.status()`, `BCDock.toolkit.set(id, "latest" | "off" |
+  "0.8.1")`, `BCDock.toolkit.check()`.
 
 ## Reloading the add-ons without reloading the game
 

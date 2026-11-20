@@ -5,9 +5,11 @@
 // action (Little Black Book opens its big window). Each add-on's loader @requires this file before the
 // add-on. The first copy to run creates window.BCDock; later copies of the same or an older version
 // leave it alone, and a newer version takes over, keeping the panels already added. See README.md.
+// Loaded by the one BC Toolkit script (bc-toolkit.user.js) instead, it is also the loader: ⚙ → Add-ons picks which
+// add-ons run and at which version.
 (() => {
 	"use strict";
-	const VERSION = 13; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload
+	const VERSION = 14; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on)
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -96,7 +98,7 @@
 	};
 
 	// ---------- browser tab title ----------
-	// "(3) Kira · Bondage Club": the character's name (nickname if set) after the game's own notification count, with
+	// "(3) Sky · Bondage Club": the character's name (nickname if set) after the game's own notification count, with
 	// any markers add-ons ask for in front of it (Quiet's 🔕). The game writes the title itself (NotificationTitleUpdate,
 	// as "(3) Bondage Club"); the dock watches the <title> and adds the name right after each write. Watching isn't
 	// slowed in a background tab, the way timers are, and needs no hook in the game. Off: ⚙ → Character name in the tab.
@@ -214,6 +216,11 @@
 .bcd-cfg .themes button.on{border-color:var(--bcd-accent);background:var(--bcd-tab-act)}
 .bcd-cfg .sw{display:inline-flex;flex:none;border-radius:3px;overflow:hidden;border:1px solid #0006}
 .bcd-cfg .sw i{width:6px;height:12px}
+.bcd-cfg .tk{display:grid;grid-template-columns:1fr auto;gap:1px 6px;align-items:center;margin:3px 0}
+.bcd-cfg .tk select{font-size:11px;max-width:110px;padding:1px 2px;background:var(--bcd-ctl);color:inherit;border:1px solid var(--bcd-ctl-line);border-radius:4px}
+.bcd-cfg .tk .st:empty{display:none}
+.bcd-cfg .tk .st{grid-column:1/-1;font-size:10px;color:#999;margin:-1px 0 3px 18px}
+.bcd-cfg .tk .st.bad{color:#e88}.bcd-cfg .tk .st.ok{color:#8c8}
 .bcd-cfg input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid var(--bcd-ctl-line);border-radius:4px;background:var(--bcd-ctl);cursor:pointer}
 `;
 
@@ -251,6 +258,8 @@
 		const pct = Math.round(state.opacity * 100);
 		const out = el("span", {}, `${pct}%`);
 		cfgBody.replaceChildren(
+			// With the BC Toolkit loader, the add-on menus come first
+			...(tkOn() ? [el("h4", { style: "margin-top:0" }, "Add-ons"), ...tkSection(), el("h4", {}, "Dock")] : []),
 			el(
 				"div",
 				{ class: "row" },
@@ -283,7 +292,7 @@
 			el("h4", {}, "Browser tab"),
 			el(
 				"label",
-				{ class: "row", title: "Shows who's logged in on the browser tab, e.g. \"(3) Kira · Bondage Club\", so you can tell your game tabs apart" },
+				{ class: "row", title: "Shows who's logged in on the browser tab, e.g. \"(3) Sky · Bondage Club\", so you can tell your game tabs apart" },
 				el("input", {
 					type: "checkbox",
 					checked: titleOn(),
@@ -296,10 +305,10 @@
 				}),
 				"Character name in the tab"
 			),
-			el("h4", {}, "Add-ons"),
+			...(tkOn() ? [] : [el("h4", {}, "Add-ons")]),
 			el(
 				"div",
-				{ class: "bcd-vers" },
+				{ class: "bcd-vers", style: tkOn() ? "display:none" : null },
 				[...panels.values()].sort((a, b) => a.spec.order - b.spec.order).flatMap((p) => [el("span", {}, `${p.spec.icon ? p.spec.icon + " " : ""}${p.spec.title}`), el("span", {}, verText(p) || "version not reported")]),
 				el("span", {}, "⚙ Dock"),
 				el("span", {}, `v${VERSION}`)
@@ -540,7 +549,8 @@
 	}
 
 	function place() {
-		const any = [...panels.values()].some((p) => p.visible);
+		// With the BC Toolkit loader, ⚙ stays reachable even before any add-on shows a tab (its menus switch them on)
+		const any = [...panels.values()].some((p) => p.visible) || (tk.started && tkOn());
 		rail.className = `${state.side}${any ? "" : " empty"}`;
 		if (!any && active === CFG) return setActive(null);
 		const rr = rail.getBoundingClientRect();
@@ -943,6 +953,264 @@
 		];
 	}
 
+	// ---------- BC Toolkit loader ----------
+	// With the one BC Toolkit script (bc-toolkit.user.js) the dock also loads the add-ons. ⚙ → Add-ons has a menu for
+	// each: Off, Latest, or a fixed version. The list of add-ons and their versions (toolkit.json) comes from the
+	// repository's main branch; each add-on's file comes from its release tag through jsDelivr, exactly like the
+	// separate scripts' @require lines, so a version never changes under you. Latest moves to a new release when the
+	// game loads, or on "Check for updates". Turned on by this line in that script's body:
+	//   window.BCToolkit = { loader: true };
+	// Without it (the separate add-on scripts) none of this runs. listUrl and fileBase ("…/{tag}/") in the same object
+	// point it somewhere else, for testing.
+	const TK_LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
+	const TK_FILES = "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@{tag}/";
+	const tkCfg = () => (window.BCToolkit && typeof window.BCToolkit === "object" ? window.BCToolkit : {});
+	const tkOn = () => tkCfg().loader === true;
+	// Carried over when a newer dock takes over, so nothing is loaded twice.
+	// mine: versions this loader started; own: add-ons already running from their own Tampermonkey script (left alone)
+	const tk = prev?._tk?.() || { started: false, list: null, listAt: 0, listErr: null, mine: {}, own: {}, busy: {}, err: {}, checking: false };
+	let tkTimer = null;
+	let tkStatusTimer = null;
+
+	// Only what the loader needs, checked, so a broken list can't point it at anything but this repository's files
+	function tkClean(raw) {
+		if (!raw || raw.format !== "BCToolkit" || !Array.isArray(raw.addons)) return null;
+		const ok = (re, v) => typeof v === "string" && re.test(v);
+		const addons = raw.addons
+			.filter((a) => a && ok(/^[a-z]{1,12}$/, a.id) && ok(/^[\w-]+\/[\w.-]+\.js$/, a.path) && ok(/^[A-Z][A-Za-z]{1,29}$/, a.global) && a.global !== "BCDock" && ok(/^[a-z]{1,8}-v$/, a.prefix) && Array.isArray(a.versions))
+			.map((a) => ({
+				id: a.id,
+				name: String(a.name || a.id).slice(0, 40),
+				icon: String(a.icon || "").slice(0, 4),
+				about: String(a.about || "").slice(0, 160),
+				path: a.path,
+				global: a.global,
+				prefix: a.prefix,
+				versions: a.versions.filter((v) => ok(/^\d+\.\d+\.\d+$/, v)).slice(0, 20),
+			}));
+		return addons.length ? { format: "BCToolkit", addons } : null;
+	}
+
+	async function tkFetch() {
+		const urls = typeof tkCfg().listUrl === "string" ? [tkCfg().listUrl] : TK_LISTS;
+		for (const u of urls) {
+			const ctl = new AbortController();
+			const t = setTimeout(() => ctl.abort(), 8000);
+			try {
+				const r = await fetch(u, { cache: "no-store", signal: ctl.signal });
+				if (!r.ok) throw new Error(`HTTP ${r.status}`);
+				const list = tkClean(await r.json());
+				if (!list) throw new Error("not a BC Toolkit list");
+				tk.list = list;
+				tk.listAt = Date.now();
+				tk.listErr = null;
+				state.tkList = { ...list, at: tk.listAt };
+				save();
+				return true;
+			} catch (e) {
+				tk.listErr = e?.name === "AbortError" ? "timed out" : e?.message || String(e);
+			} finally {
+				clearTimeout(t);
+			}
+		}
+		// Offline or blocked: the list from last time still says what to load
+		if (!tk.list) {
+			const cached = tkClean(state.tkList);
+			if (cached) (tk.list = cached), (tk.listAt = state.tkList.at || 0);
+		}
+		return false;
+	}
+
+	// Every add-on runs at Latest until you pick something else (add-ons new to the list too)
+	const tkPick = (id) => (state.tk && typeof state.tk[id] === "string" ? state.tk[id] : "latest");
+	function tkWant(a) {
+		const p = tkPick(a.id);
+		if (p === "latest") return a.versions[0] || null;
+		return /^\d+\.\d+\.\d+$/.test(p) ? p : null;
+	}
+	function tkRunning(a) {
+		try {
+			const g = window[a.global];
+			return g && typeof g === "object" ? String(g.version || "?") : null;
+		} catch {
+			return null;
+		}
+	}
+	const tkUrl = (a, v) => (typeof tkCfg().fileBase === "string" ? tkCfg().fileBase : TK_FILES).replace("{tag}", a.prefix + v) + a.path;
+
+	// Adds the add-on's file as a script from its release. A copy already running is replaced by the new one itself
+	// (each add-on unloads its previous copy when it starts), so switching versions needs no reload.
+	function tkLoad(a, v) {
+		tk.busy[a.id] = true;
+		delete tk.err[a.id];
+		tkRender();
+		const url = tkUrl(a, v);
+		return new Promise((resolve) => {
+			const errs = [];
+			const onErr = (e) => e.filename === url && errs.push(`${e.message}${e.lineno ? ` (line ${e.lineno})` : ""}`);
+			addEventListener("error", onErr);
+			const s = document.createElement("script");
+			s.crossOrigin = "anonymous"; // so an error in the file is reported with its message, not as "Script error."
+			s.src = url;
+			const done = (msg) => {
+				removeEventListener("error", onErr);
+				s.remove();
+				delete tk.busy[a.id];
+				if (msg || errs.length) {
+					tk.err[a.id] = msg || errs.join("; ");
+					console.warn("[BCDock]", `${a.name} v${v} didn't load: ${tk.err[a.id]}`);
+				} else {
+					tk.mine[a.id] = v;
+					console.log("[BCDock]", `loaded ${a.name} v${v}`);
+				}
+				tkRender();
+				resolve();
+			};
+			s.onload = () => done(null);
+			s.onerror = () => done("couldn't download it");
+			document.head.append(s);
+		});
+	}
+
+	function tkUnload(a) {
+		try {
+			window[a.global]?.unload?.();
+			console.log("[BCDock]", `turned off ${a.name}`);
+		} catch (e) {
+			console.warn("[BCDock]", `${a.name} didn't unload cleanly`, e);
+		}
+		delete tk.mine[a.id];
+		delete tk.err[a.id];
+	}
+
+	// Brings one add-on to what its menu says
+	async function tkApply(a) {
+		if (tk.own[a.id] || tk.busy[a.id]) return;
+		const want = tkWant(a);
+		const have = tk.mine[a.id] || null;
+		if (!want) {
+			if (have) tkUnload(a);
+			return tkRender();
+		}
+		if (have === want && !tk.err[a.id]) return;
+		await tkLoad(a, want);
+	}
+
+	function tkSet(id, pick) {
+		if (pick !== "off" && pick !== "latest" && !/^\d+\.\d+\.\d+$/.test(pick)) return;
+		state.tk = { ...(state.tk || {}), [id]: pick };
+		save();
+		const a = tk.list?.addons.find((x) => x.id === id);
+		if (a && tk.started) tkApply(a);
+		tkRender();
+	}
+
+	async function tkCheck() {
+		if (tk.checking) return;
+		tk.checking = true;
+		tkRender();
+		try {
+			await tkFetch();
+			if (tk.started) for (const a of tk.list?.addons || []) await tkApply(a);
+		} finally {
+			tk.checking = false;
+			tkRender();
+		}
+	}
+
+	async function tkStart() {
+		tk.started = true;
+		place();
+		await tkFetch();
+		// Add-ons that their own Tampermonkey scripts already started are left to those scripts
+		for (const a of tk.list?.addons || []) {
+			const v = tkRunning(a);
+			if (v && !tk.mine[a.id]) tk.own[a.id] = v;
+		}
+		for (const a of tk.list?.addons || []) await tkApply(a);
+		console.log("[BCDock]", `BC Toolkit: ${Object.entries(tk.mine).map(([id, v]) => `${id} v${v}`).join(", ") || "no add-ons switched on (⚙ → Add-ons)"}`);
+		tkRender();
+	}
+
+	// The script's body sets the flag after this file runs, and separate add-on scripts may start their own copies
+	// meanwhile, so the loader starts a little after the game's scripts are there
+	function tkWatch() {
+		let n = 0;
+		clearInterval(tkTimer);
+		tkTimer = setInterval(() => {
+			if (tk.started || window.BCDock !== api || ++n > 120) return clearInterval(tkTimer);
+			if (!tkOn() || typeof bcModSdk === "undefined" || typeof Player === "undefined" || typeof CommandCombine !== "function") return;
+			clearInterval(tkTimer);
+			setTimeout(() => !tk.started && window.BCDock === api && tkStart(), 2000);
+		}, 500);
+		// The status lines under the menus change as add-ons start; updated in place so an open menu stays open
+		clearInterval(tkStatusTimer);
+		tkStatusTimer = setInterval(() => {
+			if (active !== CFG || !tkOn()) return;
+			for (const a of tk.list?.addons || []) {
+				const node = cfgBody.querySelector(`.st[data-tk="${a.id}"]`);
+				if (!node) continue;
+				const [cls, text] = tkStatus(a);
+				if (node.textContent !== text) node.textContent = text;
+				node.className = `st ${cls}`;
+			}
+		}, 1500);
+	}
+
+	const tkRender = () => {
+		if (active === CFG && window.BCDock === api) renderCfg();
+	};
+
+	function tkStatus(a) {
+		if (tk.own[a.id]) return ["", `v${tk.own[a.id]} runs from its own Tampermonkey script. Turn that script off to choose here.`];
+		if (tk.busy[a.id]) return ["", "loading…"];
+		if (tk.err[a.id]) return ["bad", `didn't load: ${tk.err[a.id]}`];
+		const want = tkWant(a);
+		const run = tkRunning(a);
+		if (!want) return run ? ["bad", `v${run} still running; reload the game to stop it`] : ["", ""];
+		if (run === want) return ["ok", `v${run} running`];
+		if (tk.mine[a.id] === want) return ["", `v${want} starting…`];
+		if (!tk.started) return ["", ""];
+		return ["", `v${want} not loaded yet`];
+	}
+
+	function tkAge() {
+		if (!tk.listAt) return "";
+		const m = Math.round((Date.now() - tk.listAt) / 60000);
+		const ago = m < 1 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`;
+		return `List checked ${ago}${tk.listErr ? ` (couldn't check now: ${tk.listErr})` : ""}`;
+	}
+
+	function tkSection() {
+		if (!tk.started) return [el("div", { class: "hint" }, "The add-ons start once the game has loaded…")];
+		const list = tk.list?.addons;
+		if (!list)
+			return [
+				el("div", { class: "hint" }, `Couldn't get the list of add-ons${tk.listErr ? ` (${tk.listErr})` : ""}.`),
+				el("div", { class: "row" }, el("button", { onclick: tkCheck, disabled: tk.checking }, tk.checking ? "Checking…" : "Try again")),
+			];
+		const rows = list.flatMap((a) => {
+			const pick = tkPick(a.id);
+			const sel = el(
+				"select",
+				{ title: a.about, disabled: !!tk.own[a.id], onchange: (e) => tkSet(a.id, e.target.value) },
+				el("option", { value: "off" }, "Off"),
+				el("option", { value: "latest" }, a.versions[0] ? `Latest (${a.versions[0]})` : "Latest"),
+				a.versions.map((v) => el("option", { value: v }, `v${v}`)),
+				// a fixed version that has dropped off the list stays as it is
+				/^\d/.test(pick) && !a.versions.includes(pick) ? el("option", { value: pick }, `v${pick}`) : null
+			);
+			sel.value = pick;
+			const [cls, text] = tkStatus(a);
+			return [el("span", { title: a.about }, `${a.icon ? a.icon + " " : ""}${a.name}`), sel, el("div", { class: `st ${cls}`, "data-tk": a.id }, text)];
+		});
+		return [
+			el("div", { class: "tk" }, rows),
+			el("div", { class: "row" }, el("span", { class: "hint", style: "flex:1" }, tkAge()), el("button", { onclick: tkCheck, disabled: tk.checking }, tk.checking ? "Checking…" : "Check for updates")),
+			el("div", { class: "hint" }, "Changes apply right away. Latest moves to new releases each time the game loads. An older version may not read what a newer one saved."),
+		];
+	}
+
 	// ---------- start ----------
 	document.head.append(style);
 	rail.append(cfgTab);
@@ -986,7 +1254,16 @@
 		_devRoot: () => dev.root,
 		_devKnownSet: (k) => (dev.known = { ...(dev.known || {}), ...k }),
 		_titleMarks: () => [...titleMarks],
+		// BC Toolkit loader (bc-toolkit.user.js): what's loaded, menus, and a fresh look at the list
+		toolkit: {
+			status: () => Object.fromEntries((tk.list?.addons || []).map((a) => [a.id, { pick: tkPick(a.id), running: tkRunning(a), status: tkStatus(a)[1] }])),
+			set: tkSet,
+			check: tkCheck,
+		},
+		_tk: () => tk,
 		_takeover() {
+			clearInterval(tkTimer);
+			clearInterval(tkStatusTimer);
 			const out = {
 				active: active === CFG ? null : active,
 				panels: [...panels.values()].map((p) => ({
@@ -1013,5 +1290,6 @@
 		},
 	};
 	window.BCDock = api;
+	tkWatch();
 	if (reopen) setActive(reopen);
 })();

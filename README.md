@@ -1,9 +1,13 @@
 # BC Toolkit
 
 Small, consent-first add-ons for [Bondage Club](https://www.bondageprojects.com/), sharing one dock
-on the edge of the screen. Install only the ones you want: each has its own Tampermonkey script.
+on the edge of the screen. Install them all with **one script** and switch each on in the dock, or install only
+the ones you want, each with its own script.
 
-| Add-on | What it does | Install |
+**[Install BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** (all add-ons,
+one script; see [Installing](#installing))
+
+| Add-on | What it does | Separate script |
 |---|---|---|
 | 📓 [Little Black Book](bc-little-black-book/README.md) | Profiles of people you meet (even when they're offline), beep and whisper chats, room logs, saved outfits, online alerts. `/book` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js) |
 | ⚡ [Quick Actions](bc-quick-actions/README.md) | Favourite and recent activities one click away, on yourself or anyone in the room | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quick-actions/quick-actions.user.js) |
@@ -15,16 +19,26 @@ on the edge of the screen. Install only the ones you want: each has its own Tamp
 
 The [dock](bc-dock/README.md) comes along with whichever add-on you install: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
-("Kira · Bondage Club"), so your game tabs are easy to tell apart.
+("Sky · Bondage Club"), so your game tabs are easy to tell apart.
 
 ## Installing
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Click **Install** for an add-on in the table above, and confirm in Tampermonkey.
-3. Reload the game.
+2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** and confirm
+   in Tampermonkey.
+3. Reload the game. Every add-on starts at its latest release; switch off the ones you don't want in the dock's
+   ⚙ → **Add-ons**.
 
-Each add-on updates through Tampermonkey. They work with the usual add-ons (WCE, BCX, LSCG, ...) and
-use [ModSDK](https://github.com/Jomshir98/bondage-club-mod-sdk) hooks only, never overwriting game
+Each add-on has a menu: **Off**, **Latest** (moves to new releases each time the game loads), or a fixed version
+to stay on. Changes apply right away, without reloading the game. Your choices are kept in this browser. See
+[the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more.
+
+**Or one script per add-on:** click **Install** in the table above for the ones you want. Those update through
+Tampermonkey. Don't mix the two for the same add-on: if an add-on's own script is installed, BC Toolkit leaves
+that add-on to it (its menu says so); turn the separate script off in Tampermonkey to choose its version in the
+dock instead.
+
+Either way, the add-ons work with the usual add-ons (WCE, BCX, LSCG, ...) and use [ModSDK](https://github.com/Jomshir98/bondage-club-mod-sdk) hooks only, never overwriting game
 functions.
 
 ## Good to know
@@ -55,14 +69,24 @@ loader that `@require`s the files from disk instead of from a release:
 
 ### Releasing
 
-Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`, `ag-vX.Y.Z`.
+Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`, `ag-vX.Y.Z`,
+`qt-vX.Y.Z`, `hr-vX.Y.Z`, `vf-vX.Y.Z`.
 
 1. Bump the version in the add-on's `MOD_INFO` and in its `.user.js` (`@version` and the tag in
    both `@require` lines).
-2. Commit, then tag that commit (`git tag qa-v0.5.2`) and push the commit and the tag.
+2. Commit, then tag that commit (`git tag qa-v0.5.2`).
+3. Run `node tools/toolkit-list.mjs` to add the new version to `toolkit.json` (the list BC Toolkit's menus are
+   filled from), and commit that.
+4. Push the commits and the tag.
 
 The loaders load the add-on and the dock from that tag through jsDelivr, so a release never changes
-under anyone. Tampermonkey sees the new `@version` on `main` and offers the update.
+under anyone. Tampermonkey sees the new `@version` on `main` and offers the update; BC Toolkit users on
+**Latest** get it the next time the game loads.
+
+A new add-on also needs an entry in `toolkit.json` (id, name, icon, file path, the name of its `window` object, tag
+prefix). A change to the dock is released with BC Toolkit itself: bump `@version` and the `@require` tag in
+`bc-toolkit.user.js` and tag that commit `tk-vX.Y.Z`. (The separate scripts get the new dock with their next
+release; the newest dock on the page takes over.)
 
 ## License
 

@@ -1,0 +1,110 @@
+{
+  "format": "BCToolkit",
+  "v": 1,
+  "addons": [
+    {
+      "id": "book",
+      "name": "Little Black Book",
+      "icon": "📓",
+      "about": "Profiles, notes, chats and beeps, room logs, online alerts",
+      "path": "bc-little-black-book/little-black-book.js",
+      "global": "BlackBook",
+      "prefix": "book-v",
+      "versions": [
+        "1.2.3",
+        "1.2.2",
+        "1.2.1",
+        "1.2.0",
+        "1.1.0"
+      ]
+    },
+    {
+      "id": "qa",
+      "name": "Quick Actions",
+      "icon": "⚡",
+      "about": "A bar of your favorite activities in chat rooms",
+      "path": "bc-quick-actions/quick-actions.js",
+      "global": "QuickActions",
+      "prefix": "qa-v",
+      "versions": [
+        "0.5.2",
+        "0.5.1"
+      ]
+    },
+    {
+      "id": "vibe",
+      "name": "Vibe Link",
+      "icon": "〰",
+      "about": "Real toys follow your vibrators (Intiface), and remote play",
+      "path": "bc-vibe-link/vibe-link.js",
+      "global": "VibeLink",
+      "prefix": "vl-v",
+      "versions": [
+        "0.14.0",
+        "0.13.1",
+        "0.13.0",
+        "0.12.0",
+        "0.11.0",
+        "0.10.2"
+      ]
+    },
+    {
+      "id": "ag",
+      "name": "Afterglow",
+      "icon": "✨",
+      "about": "Orgasm, denial and edging counters and records",
+      "path": "bc-afterglow/afterglow.js",
+      "global": "Afterglow",
+      "prefix": "ag-v",
+      "versions": [
+        "0.8.1",
+        "0.8.0",
+        "0.7.3",
+        "0.7.2",
+        "0.7.1",
+        "0.7.0",
+        "0.5.0",
+        "0.4.0"
+      ]
+    },
+    {
+      "id": "quiet",
+      "name": "Quiet",
+      "icon": "🔕",
+      "about": "Mute the game's notifications in one tab",
+      "path": "bc-quiet/quiet.js",
+      "global": "Quiet",
+      "prefix": "qt-v",
+      "versions": [
+        "0.2.0",
+        "0.1.0"
+      ]
+    },
+    {
+      "id": "hr",
+      "name": "Held Remote",
+      "icon": "🎚",
+      "about": "Use a vibrator remote in your hand while your arms are tied",
+      "path": "bc-held-remote/held-remote.js",
+      "global": "HeldRemote",
+      "prefix": "hr-v",
+      "versions": [
+        "0.1.2",
+        "0.1.1",
+        "0.1.0"
+      ]
+    },
+    {
+      "id": "vf",
+      "name": "Vibe Fix",
+      "icon": "🔧",
+      "about": "R134 fix: vibrators turn down and off again",
+      "path": "bc-vibe-fix/vibe-fix.js",
+      "global": "VibeFix",
+      "prefix": "vf-v",
+      "versions": [
+        "0.1.0"
+      ]
+    }
+  ]
+}
