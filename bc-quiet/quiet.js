@@ -4,11 +4,12 @@
 // One click on the dock mutes every game notification in this tab (popups, tab title, favicon and the alarm
 // sound, for chat messages, people joining, beeps, disconnects and LARP turns), and another click brings them
 // back. The game's own notification settings are never changed. The choice is kept per character in this browser.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
+	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
 	const TAG = "[Quiet]";
 	const KEY = (m) => `Quiet.${m}`;
 
@@ -37,7 +38,9 @@
 		try {
 			if (on) localStorage.setItem(KEY(m), "1");
 			else localStorage.removeItem(KEY(m));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	};
 
 	// Notifications already showing (a count in the tab title, a favicon dot, an open popup) are cleared on muting,
@@ -96,7 +99,10 @@
 		}
 		function render() {
 			if (!window.BCDock) {
-				if (!warned) (warned = true), console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no button. /quiet still works.");
+				if (!warned) {
+					warned = true;
+					console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no button. /quiet still works.");
+				}
 				return;
 			}
 			if (!tab || shownIcon !== icon()) {
@@ -168,4 +174,4 @@
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded${muted ? " (muted)" : ""}`);
-})();
+})().catch((err) => console.error("[Quiet]", err));

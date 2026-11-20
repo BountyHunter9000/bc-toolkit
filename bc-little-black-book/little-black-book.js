@@ -6,11 +6,12 @@
 // - Chats: logs beeps and whispers per person and lets you reply with beeps.
 // - Rooms: logs every room you enter (settings, description, all chat lines) for history and export.
 // - Friends / Lobby: who's online and where, and a browsable room list.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.7", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.8", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -41,15 +42,17 @@
 	let dbOpening = null; // { owner, promise }
 	let dbWaiting = []; // writes that arrived before this account's database was open
 
+	/** @param {IDBRequest} req */
 	const reqDone = (req) =>
 		new Promise((resolve, reject) => {
 			req.onsuccess = () => resolve(req.result);
-			req.onerror = () => reject(req.error);
+			req.onerror = () => reject(req.error instanceof Error ? req.error : new Error("IndexedDB request failed"));
 		});
+	/** @param {IDBTransaction} t */
 	const txDone = (t) =>
 		new Promise((resolve, reject) => {
 			t.oncomplete = () => resolve();
-			t.onerror = () => reject(t.error);
+			t.onerror = () => reject(t.error instanceof Error ? t.error : new Error("IndexedDB transaction failed"));
 		});
 
 	function openAccountDb(owner) {
@@ -96,7 +99,7 @@
 				};
 				resolve(d);
 			};
-			req.onerror = () => reject(req.error);
+			req.onerror = () => reject(req.error instanceof Error ? req.error : new Error("IndexedDB request failed"));
 		});
 	}
 
@@ -125,7 +128,7 @@
 			new Promise((resolve, reject) => {
 				const r = indexedDB.open(oldName);
 				r.onsuccess = () => resolve(r.result);
-				r.onerror = () => reject(r.error);
+				r.onerror = () => reject(r.error instanceof Error ? r.error : new Error("IndexedDB request failed"));
 			}),
 			sleep(5000).then(() => null),
 		]);
@@ -201,7 +204,7 @@
 			}
 			ui.onAccountReady();
 			syncStatus = { at: 0, items: 0, size: 0, note: "" };
-			setTimeout(() => syncAccount(true).catch((e) => console.warn(TAG, "sync failed", e)), 3000);
+			setTimeout(() => syncAccount(true).catch((err) => console.warn(TAG, "sync failed", err)), 3000);
 			return d;
 		})();
 		dbOpening = { owner, promise };
@@ -266,8 +269,8 @@
 		prefs[key] = value;
 		savePrefs();
 		applyPrefs();
-		if (key === "roomLogDays" || key === "chatDays") pruneOldData();
-		if (key === "outboxAutoSend" && value) deliverOutbox();
+		if (key === "roomLogDays" || key === "chatDays") pruneOldData().catch((err) => console.warn(TAG, err));
+		if (key === "outboxAutoSend" && value) deliverOutbox().catch((err) => console.warn(TAG, err));
 	}
 
 	// Runs fn right away if this account's database is open, otherwise as soon as it is
@@ -286,10 +289,11 @@
 	const tx = async (mode, fn) => {
 		await ensureDb();
 		return new Promise((resolve, reject) => {
+			/** @type {IDBTransaction} */
 			const t = db.transaction("profiles", mode);
 			const req = fn(t.objectStore("profiles"));
 			t.oncomplete = () => resolve(req ? req.result : undefined);
-			t.onerror = () => reject(t.error);
+			t.onerror = () => reject(t.error instanceof Error ? t.error : new Error("IndexedDB transaction failed"));
 		});
 	};
 	const dbGet = (key) => tx("readonly", (s) => s.get(key));
@@ -308,8 +312,8 @@
 				mutate(rec);
 				await dbPut(rec);
 			})
-			.catch((e) => console.warn(TAG, "save failed", e));
-		writeChain.then(() => ui.refreshSoon());
+			.catch((err) => console.warn(TAG, "save failed", err));
+		writeChain.then(() => ui.refreshSoon()).catch((err) => console.warn(TAG, err));
 		return writeChain;
 	}
 
@@ -347,7 +351,7 @@
 			rec.lastRoom = room?.Name || currentRoomName() || rec.lastRoom || "";
 			if (room) rec.lastRoomInfo = room;
 			rec.data = snap;
-		});
+		}).catch((err) => console.warn(TAG, err));
 	}
 
 	// Items put on or changed on someone already in the room arrive as single-item updates (ChatRoomSyncItem),
@@ -368,7 +372,7 @@
 					if (!rec.data) return;
 					rec.data.Appearance = appearance;
 					rec.lastSeen = Date.now();
-				});
+				}).catch((err) => console.warn(TAG, err));
 			}, 800)
 		);
 	}
@@ -383,7 +387,7 @@
 			if (!rec.name && known) rec.name = known.Name;
 			rec.modMessages = rec.modMessages || {};
 			rec.modMessages[msg.Content] = { at: Date.now(), msg: snap };
-		});
+		}).catch((err) => console.warn(TAG, err));
 	}
 
 	// Each answer to the online-friends query: who's online now. Per friend we keep when they were last seen online
@@ -405,13 +409,13 @@
 					if (before ? !before.has(f.MemberNumber) : !(prev && now - prev < ONLINE_SAME_SESSION_MS && (rec.lastOffline || 0) < prev)) rec.onlineSince = before ? now : null;
 					rec.lastOnline = now;
 					rec.lastOnlineInfo = f;
-				});
+				}).catch((err) => console.warn(TAG, err));
 			}
-			if (before) for (const m of before.keys()) if (!onlineFriends.has(m)) updateRecord(m, (rec) => (rec.lastOffline = now));
+			if (before) for (const m of before.keys()) if (!onlineFriends.has(m)) updateRecord(m, (rec) => (rec.lastOffline = now)).catch((err) => console.warn(TAG, err));
 		}
 		ui.refreshSoon();
 		ui.onOutboxChanged();
-		deliverOutbox();
+		deliverOutbox().catch((err) => console.warn(TAG, err));
 	}
 
 	function currentRoomName() {
@@ -562,7 +566,7 @@
 		// First room sync since the page loaded (auto-relogin rejoins before anything else runs): check whether
 		// this continues the last visit first. Lines drawn meanwhile are picked up from the chat log afterwards.
 		if (!session && !checkedResume) {
-			if (!resuming) resumeCurrentRoom(data, characters);
+			if (!resuming) resumeCurrentRoom(data, characters).catch((err) => console.warn(TAG, err));
 			return;
 		}
 		// A resync of the room we're already in (reconnect, admin change) continues the same session
@@ -571,7 +575,7 @@
 			const now = Date.now();
 			session = { id: now, owner: me(), room, start: now, end: now, count: 0, members: {}, colors: {}, closed: false };
 			ui.onSessionStarted({ ...session });
-			noteChangesSinceLastVisit(session);
+			noteChangesSinceLastVisit(session).catch((err) => console.warn(TAG, err));
 		} else {
 			logRoomChanges(roomChanges(session.room, room), "Room changed");
 			session.room = { ...session.room, ...room };
@@ -678,7 +682,9 @@
 				const p = FriendListBeepParseMessage(raw);
 				return { text: p.text || "", meta: p.metadata || null };
 			}
-		} catch {}
+		} catch {
+			// not critical: carries on without it
+		}
 		return { text: raw, meta: null };
 	}
 
@@ -726,7 +732,7 @@
 			const n = new Notification(`${name} is online`, { body: where, tag: `fm-online-${f.MemberNumber}` });
 			n.onclick = () => {
 				window.focus();
-				ui.open(f.MemberNumber, "profiles");
+				ui.open(f.MemberNumber, "profiles").catch((err) => console.warn(TAG, err));
 				n.close();
 			};
 		}
@@ -768,7 +774,7 @@
 		});
 		n.onclick = () => {
 			window.focus();
-			ui.open(rec.member, "chats");
+			ui.open(rec.member, "chats").catch((err) => console.warn(TAG, err));
 			n.close();
 		};
 	}
@@ -804,7 +810,9 @@
 		if (typeof NotificationReset === "function" && typeof NotificationEventType !== "undefined") {
 			try {
 				NotificationReset(NotificationEventType.BEEP);
-			} catch {}
+			} catch {
+				// already done or gone: nothing to undo
+			}
 		}
 		refreshGameFriendList(member);
 	}
@@ -890,7 +898,9 @@
 			let label = "";
 			try {
 				label = CommonStringSubstitute(TextGet("CommandBeepLink"), [["{NAME}", targetName], ["{NUMBER}", String(target)], ["{MESSAGE}", shown]]);
-			} catch {}
+			} catch {
+				// not available in this game or browser: the fallback is used
+			}
 			link.textContent = label && !label.startsWith("MISSING") ? label : `Beep to ${targetName} (${target}): ${shown}`;
 			const div = document.createElement("div");
 			div.classList.add("ChatMessage", "ChatMessageLocalMessage", "ChatMessageNonDialogue", "ChatMessageBeep");
@@ -1038,10 +1048,14 @@
 			const est = navigator.storage?.estimate ? await navigator.storage.estimate() : null;
 			usage = est?.usage ?? null;
 			details = est?.usageDetails || null;
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		try {
 			databases = indexedDB.databases ? (await indexedDB.databases()).map((d) => d.name).filter(Boolean).sort() : [];
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		return { sessions, roomMsgs, dms, convs, profiles, meta, usage, details, databases };
 	}
 
@@ -1111,15 +1125,15 @@
 		if (syncBusy || !prefs.syncAccount) return;
 		syncDirty = true;
 		clearTimeout(syncTimer);
-		syncTimer = setTimeout(() => syncAccount().catch((e) => console.warn(TAG, "sync failed", e)), 10_000);
+		syncTimer = setTimeout(() => syncAccount().catch((err) => console.warn(TAG, "sync failed", err)), 10_000);
 	}
 
 	// Short stable fingerprint of a value, to notice what changed since the last sync
 	function syncHash(v) {
 		const str = JSON.stringify(v ?? null);
-		let h = 5381;
-		for (let i = 0; i < str.length; i++) h = ((h << 5) + h + str.charCodeAt(i)) | 0;
-		return `${str.length}:${h >>> 0}`;
+		let hash = 5381;
+		for (let i = 0; i < str.length; i++) hash = ((hash << 5) + hash + str.charCodeAt(i)) | 0;
+		return `${str.length}:${hash >>> 0}`;
 	}
 
 	// What this computer has now, as { itemKey: value }; anything missing means empty/off/deleted
@@ -1147,7 +1161,7 @@
 		}
 		for (const m of metaAll) {
 			if (!String(m.key).startsWith("outfit:") || (m.from != null && m.from !== owner)) continue;
-			const { key, ...o } = m;
+			const { key: _key, ...o } = m;
 			items[`outfit:${m.id}`] = o;
 		}
 		return items;
@@ -1174,7 +1188,11 @@
 			const rec = (await dbGet(k)) || (val ? { key: k, owner, member, firstSeen: Date.now(), note: "", modMessages: {} } : null);
 			if (!rec) return;
 			if (kind === "note") rec.note = val || "";
-			else if (kind === "bell") (rec.notifyOnline = !!val) ? bells.add(member) : bells.delete(member);
+			else if (kind === "bell") {
+				rec.notifyOnline = !!val;
+				if (rec.notifyOnline) bells.add(member);
+				else bells.delete(member);
+			}
 			else rec.fav = !!val;
 			await dbPut(rec);
 		} else if (kind === "pin" || kind === "hide") {
@@ -1218,9 +1236,9 @@
 			// 1. What changed here since the last sync gets stamped now. On a computer's first sync, things the account
 			//    already has are taken from the account rather than overwriting it with this computer's (empty) defaults.
 			for (const k of new Set([...Object.keys(local), ...Object.keys(state.h)])) {
-				const h = syncHash(local[k]);
-				if (state.h[k] === h) continue;
-				state.h[k] = h;
+				const hv = syncHash(local[k]);
+				if (state.h[k] === hv) continue;
+				state.h[k] = hv;
 				state.at[k] = firstRun && ritems[k] ? 0 : now;
 			}
 			// 2. Merge, newest change wins; apply what the account has newer
@@ -1289,7 +1307,7 @@
 		const lc = await new Promise((resolve, reject) => {
 			const r = indexedDB.open(name);
 			r.onsuccess = () => resolve(r.result);
-			r.onerror = () => reject(r.error);
+			r.onerror = () => reject(r.error instanceof Error ? r.error : new Error("IndexedDB request failed"));
 		});
 		try {
 			const read = (s) => (lc.objectStoreNames.contains(s) ? reqDone(lc.transaction(s).objectStore(s).getAll()) : Promise.resolve([]));
@@ -1361,7 +1379,7 @@
 				const renamed = room.Name && room.Name !== oldName;
 				if (renamed) session.aliases = [...new Set([...(session.aliases || []), oldName])];
 				saveSession();
-				if (renamed) ui.onRoomRenamed(oldName, room.Name);
+				if (renamed) ui.onRoomRenamed(oldName, room.Name).catch((err) => console.warn(TAG, err));
 			}
 			if (event === "ChatRoomSyncMemberJoin" && session && !session.closed && data.Character?.MemberNumber) {
 				rememberMember(data.Character);
@@ -1600,8 +1618,8 @@
 		if (typeof name !== "string") return null;
 		const low = (ADDON_ALIASES[name] || name).toLowerCase();
 		const hit = ADDON_DIRECTORY.find(
-			([id, title, , , , other]) =>
-				id.toLowerCase() === low || title.toLowerCase() === low || (title.match(/\(([^)]+)\)$/)?.[1] || "").toLowerCase() === low || other.some((o) => o.toLowerCase() === low)
+			([dirId, dirTitle, , , , other]) =>
+				dirId.toLowerCase() === low || dirTitle.toLowerCase() === low || (dirTitle.match(/\(([^)]+)\)$/)?.[1] || "").toLowerCase() === low || other.some((o) => o.toLowerCase() === low)
 		);
 		if (!hit) return null;
 		const [id, title, website, repo, desc] = hit;
@@ -1697,7 +1715,9 @@
 		try {
 			const a = AssetGet(family || "Female3DCG", group, name);
 			if (a && a.Description) return a.Description;
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		return name;
 	}
 
@@ -1725,7 +1745,9 @@
 		try {
 			const g = AssetGroupGet(family || "Female3DCG", group);
 			if (g && g.Description) return g.Description;
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		return group;
 	}
 
@@ -1743,7 +1765,9 @@
 		try {
 			const a = Asset.find((x) => x.Name === name && x.Group && x.Group.Category === "Item");
 			if (a) return `${a.Description} (${a.Group.Description})`;
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		return name || "?";
 	}
 
@@ -1754,6 +1778,7 @@
 
 	// Property names/descriptions live in the Crafting screen's text file, which is only loaded
 	// while that screen is open, so read the file ourselves
+	/** @type {Map<string, string>} */
 	const craftText = new Map();
 	fetch(new URL("Screens/Room/Crafting/Text_Crafting.csv", location.href))
 		.then((r) => (r.ok ? r.text() : ""))
@@ -1767,7 +1792,7 @@
 			}
 			ui.refreshSoon();
 		})
-		.catch((e) => console.warn(TAG, "crafting text load failed", e));
+		.catch((err) => console.warn(TAG, "crafting text load failed", err));
 
 	const craftPropName = (key) => craftText.get(`Property${key}`) || key;
 	const craftPropDesc = (key) => craftText.get(`Description${key}`) || "";
@@ -1787,6 +1812,7 @@
 		return el;
 	};
 
+	/** @param {number} t */
 	const ago = (t) => {
 		if (!t) return "never";
 		const s = Math.round((Date.now() - t) / 1000);
@@ -1961,6 +1987,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		let selected = null;
 		let detailTab = "Overview";
 		let filter = "friends";
+		/** @type {Map<number, any>} */
 		let records = new Map();
 
 		// chats / friends / rooms / lobby
@@ -1985,7 +2012,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				dockPanel = BCDock.add({ id: "friend-manager", title: "Black Book", icon: "📓", order: 10, version: MOD_INFO.version, visible: false, onClick: () => (panel ? close() : open()) });
 			else console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it); open it with /book");
 			renderTab();
-			refreshBadge();
+			refreshBadge().catch((err) => console.warn(TAG, err));
 		}
 
 		function unmount() {
@@ -2031,8 +2058,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				messageSearch = null;
 				convView = roomView = null;
 			}
-			refreshBadge();
-			if (panel) reload(true);
+			refreshBadge().catch((err) => console.warn(TAG, err));
+			if (panel) reload(true).catch((err) => console.warn(TAG, err));
 		}
 
 		// open(member, "profiles") jumps to that person's profile; open(member, "chats") to your conversation with them
@@ -2095,8 +2122,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			roomView = null;
 			renderNav();
 			renderTools();
-			if (s === "lobby" && !lobbyRooms) runLobbySearch();
-			reload(true);
+			if (s === "lobby" && !lobbyRooms) runLobbySearch().catch((err) => console.warn(TAG, err));
+			reload(true).catch((err) => console.warn(TAG, err));
 		}
 
 		function renderNav() {
@@ -2284,7 +2311,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (!panel || refreshTimer) return;
 			refreshTimer = setTimeout(() => {
 				refreshTimer = null;
-				reload();
+				reload().catch((err) => console.warn(TAG, err));
 			}, 500);
 		}
 
@@ -2400,10 +2427,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							),
 							groupId
 								? h(
-										"span",
-										{ class: "fm-group-msg", title: `Message everyone in ${label}`, onclick: (e) => (e.stopPropagation(), (chatMember = null), (convView = null), (friendsView = { message: groupId }), renderList(), renderDetail()) },
-										"✉"
-									)
+									"span",
+									{ class: "fm-group-msg", title: `Message everyone in ${label}`, onclick: (e) => (e.stopPropagation(), (chatMember = null), (convView = null), (friendsView = { message: groupId }), renderList(), renderDetail()) },
+									"✉"
+								)
 								: null,
 							closed ? "▸" : "▾"
 						);
@@ -2494,7 +2521,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		async function toggleFavRoom(name) {
-			favRooms.has(name) ? favRooms.delete(name) : favRooms.add(name);
+			if (favRooms.has(name)) favRooms.delete(name);
+			else favRooms.add(name);
 			await ensureDb();
 			await reqDone(storeOf("meta", "readwrite").put({ key: "favRooms", names: [...favRooms].sort() }));
 			renderList();
@@ -2587,14 +2615,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			viewSig = sig;
 			if (!same) return rebuild();
 			const keyOf = (d) => (d.querySelector(":scope > summary")?.textContent || "").split(" — ")[0];
-			const open = new Map();
-			for (const d of el.querySelectorAll("details")) if (d.open) open.set(keyOf(d), [...d.querySelectorAll("pre")].map((p) => [p.scrollTop, p.scrollLeft]));
+			const openNow = new Map();
+			for (const d of el.querySelectorAll("details")) if (d.open) openNow.set(keyOf(d), [...d.querySelectorAll("pre")].map((p) => [p.scrollTop, p.scrollLeft]));
 			const top = el.scrollTop;
 			const active = document.activeElement;
 			const typing = active && el.contains(active) && active.dataset.key ? { key: active.dataset.key, value: active.value, a: active.selectionStart, b: active.selectionEnd } : null;
 			rebuild();
 			for (const d of el.querySelectorAll("details")) {
-				const was = open.get(keyOf(d));
+				const was = openNow.get(keyOf(d));
 				if (!was) continue;
 				d.open = true;
 				d.querySelectorAll("pre").forEach((p, i) => was[i] && ((p.scrollTop = was[i][0]), (p.scrollLeft = was[i][1])));
@@ -2607,7 +2635,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					t.focus();
 					try {
 						t.setSelectionRange(typing.a, typing.b);
-					} catch {}
+					} catch {
+						// already done or gone: nothing to undo
+					}
 				}
 			}
 		}
@@ -2632,7 +2662,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						return el.replaceChildren(h("p", { class: "fm-muted" }, "Pick a conversation or friend on the left."));
 					}
 					fill(true);
-					if (!convView || convView.member !== chatMember || !convView.listEl.isConnected) renderConversation(el, chatMember);
+					if (!convView || convView.member !== chatMember || !convView.listEl.isConnected) renderConversation(el, chatMember).catch((err) => console.warn(TAG, err));
 					return;
 				case "rooms":
 					if (messageSearch) {
@@ -2644,7 +2674,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						return el.replaceChildren(h("p", { class: "fm-muted" }, "Pick a room on the left, or search all logged messages."));
 					}
 					fill(true);
-					if (!roomView || roomView.name !== roomName || !roomView.linesEl.isConnected) renderRoomLog(el, roomName);
+					if (!roomView || roomView.name !== roomName || !roomView.linesEl.isConnected) renderRoomLog(el, roomName).catch((err) => console.warn(TAG, err));
 					return;
 				case "settings":
 					fill(false);
@@ -2696,7 +2726,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				c.unread = 0;
 				await reqDone(storeOf("convs", "readwrite").put(c));
 				refreshSoon();
-				refreshBadge();
+				refreshBadge().catch((err) => console.warn(TAG, err));
 			}
 		}
 
@@ -2759,7 +2789,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						setTimeout(() => setMode(mode), 3000);
 						return;
 					}
-				} else if (queueing()) queueMessage(member, text, includeRoom.checked);
+				} else if (queueing()) queueMessage(member, text, includeRoom.checked).catch((err) => console.warn(TAG, err));
 				else sendBeep(member, text, includeRoom.checked);
 				input.value = "";
 			};
@@ -2810,7 +2840,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			convView.last = prev;
 			if (!msgs.length) listEl.append(h("div", { class: "fm-muted" }, "No messages yet."));
 			listEl.scrollTop = listEl.scrollHeight;
-			markRead(member);
+			markRead(member).catch((err) => console.warn(TAG, err));
 			input.focus();
 		}
 
@@ -2841,8 +2871,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			selected = chatMember = roomName = lobbySel = outfitSel = null;
 			convView = roomView = null;
 			messageSearch = null;
-			refreshBadge();
-			reload();
+			refreshBadge().catch((err) => console.warn(TAG, err));
+			reload().catch((err) => console.warn(TAG, err));
 		}
 
 		function onOutboxChanged() {
@@ -2852,7 +2882,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		function onDm(rec) {
-			refreshBadge();
+			refreshBadge().catch((err) => console.warn(TAG, err));
 			if (isViewingConv(rec.member)) {
 				// Seen as it arrives; the game has logged its copy of the beep by now
 				if (rec.dir === "in") markGameBeepsRead(rec.member);
@@ -2894,7 +2924,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		async function setMemberGroup(member, id, inGroup) {
 			const ids = new Set(groupsData.members[member] || []);
-			inGroup ? ids.add(id) : ids.delete(id);
+			if (inGroup) ids.add(id);
+			else ids.delete(id);
 			if (ids.size) groupsData.members[member] = [...ids];
 			else delete groupsData.members[member];
 			await saveGroups();
@@ -2929,10 +2960,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			};
 			input.addEventListener("click", (e) => e.stopPropagation());
 			input.addEventListener("keydown", (e) => {
-				if (e.key === "Enter") finish(true);
+				if (e.key === "Enter") finish(true).catch((err) => console.warn(TAG, err));
 				else if (e.key === "Escape") {
 					e.stopPropagation();
-					finish(false);
+					finish(false).catch((err) => console.warn(TAG, err));
 				}
 			});
 			input.addEventListener("blur", () => finish(true));
@@ -2967,10 +2998,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					draw();
 				};
 				input.addEventListener("keydown", (e) => {
-					if (e.key === "Enter") finish(true);
+					if (e.key === "Enter") finish(true).catch((err) => console.warn(TAG, err));
 					else if (e.key === "Escape") {
 						e.stopPropagation();
-						finish(false);
+						finish(false).catch((err) => console.warn(TAG, err));
 					}
 				});
 				input.addEventListener("blur", () => finish(true));
@@ -3026,36 +3057,36 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				h("div", { style: "display:flex;gap:6px;margin-bottom:10px" }, nameEl, h("button", { onclick: add }, "Add group")),
 				groupsData.groups.length
 					? h(
-							"table",
-							{},
-							groupsData.groups.map((g) => {
-								const name = h("input", { type: "text", value: g.name });
-								// Saves as you type (and again on Enter/blur), so there's no separate save step
-								let nameTimer = null;
-								const saveName = () => name.value.trim() && name.value.trim() !== g.name && updateGroup(g.id, { name: name.value.trim() });
-								name.addEventListener("input", () => {
-									clearTimeout(nameTimer);
-									nameTimer = setTimeout(saveName, 400);
-								});
-								name.addEventListener("change", saveName);
-								const color = h("input", { type: "color", value: g.color, style: "padding:0;width:32px;height:26px" });
-								color.addEventListener("change", () => updateGroup(g.id, { color: color.value }));
-								return h(
-									"tr",
-									{},
-									h("td", { style: "width:40px" }, color),
-									h("td", {}, name),
-									h("td", { class: "fm-muted" }, `${membersOf(g.id).length} people`),
-									h(
-										"td",
-										{ style: "text-align:right" },
-										h("button", { onclick: () => ((friendsView = { message: g.id }), renderDetail()) }, "Message group"),
-										" ",
-										confirmButton("Delete", async () => (await deleteGroup(g.id), renderManageGroups(el)))
-									)
-								);
-							})
-						)
+						"table",
+						{},
+						groupsData.groups.map((g) => {
+							const name = h("input", { type: "text", value: g.name });
+							// Saves as you type (and again on Enter/blur), so there's no separate save step
+							let nameTimer = null;
+							const saveName = () => name.value.trim() && name.value.trim() !== g.name && updateGroup(g.id, { name: name.value.trim() });
+							name.addEventListener("input", () => {
+								clearTimeout(nameTimer);
+								nameTimer = setTimeout(saveName, 400);
+							});
+							name.addEventListener("change", saveName);
+							const color = h("input", { type: "color", value: g.color, style: "padding:0;width:32px;height:26px" });
+							color.addEventListener("change", () => updateGroup(g.id, { color: color.value }));
+							return h(
+								"tr",
+								{},
+								h("td", { style: "width:40px" }, color),
+								h("td", {}, name),
+								h("td", { class: "fm-muted" }, `${membersOf(g.id).length} people`),
+								h(
+									"td",
+									{ style: "text-align:right" },
+									h("button", { onclick: () => ((friendsView = { message: g.id }), renderDetail()) }, "Message group"),
+									" ",
+									confirmButton("Delete", async () => (await deleteGroup(g.id), renderManageGroups(el)))
+								)
+							);
+						})
+					)
 					: h("p", { class: "fm-muted" }, "No groups yet.")
 			);
 		}
@@ -3257,25 +3288,25 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					),
 					prefs.syncAccount
 						? h(
-								"div",
-								{ class: "fm-set-row sub" },
-								h("span", { class: "fm-muted", style: "margin-right:8px" }, syncStatusText()),
-								h(
-									"button",
-									{
-										onclick: async (e) => {
-											e.currentTarget.disabled = true;
-											try {
-												await syncAccount(true);
-											} catch (err) {
-												console.warn(TAG, "sync failed", err);
-											}
-											redraw();
-										},
+							"div",
+							{ class: "fm-set-row sub" },
+							h("span", { class: "fm-muted", style: "margin-right:8px" }, syncStatusText()),
+							h(
+								"button",
+								{
+									onclick: async (e) => {
+										e.currentTarget.disabled = true;
+										try {
+											await syncAccount(true);
+										} catch (err) {
+											console.warn(TAG, "sync failed", err);
+										}
+										redraw();
 									},
-									"Sync now"
-								)
+								},
+								"Sync now"
 							)
+						)
 						: null,
 
 					h("h3", {}, "Messages"),
@@ -3303,24 +3334,24 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					perm === "denied" ? h("p", { style: "color:#ff8a8a" }, "Notifications are blocked for this site in your browser settings.") : null,
 					perm !== "unsupported"
 						? h(
-								"div",
-								{ class: "fm-set-row sub" },
-								h(
-									"button",
-									{
-										title: "Shows a desktop notification now, asking your browser for permission first if needed",
-										onclick: async (e) => {
-											const out = e.target.nextElementSibling;
-											if (Notification.permission === "default") await Notification.requestPermission();
-											if (Notification.permission !== "granted") return (out.textContent = "Blocked: allow notifications for this site in the browser (padlock left of the address).");
-											new Notification("Little Black Book", { body: "Desktop notifications work. Check Windows' notification settings / Focus if you didn't see this.", tag: "fm-test" });
-											out.textContent = "Sent.";
-										},
+							"div",
+							{ class: "fm-set-row sub" },
+							h(
+								"button",
+								{
+									title: "Shows a desktop notification now, asking your browser for permission first if needed",
+									onclick: async (e) => {
+										const out = e.target.nextElementSibling;
+										if (Notification.permission === "default") await Notification.requestPermission();
+										if (Notification.permission !== "granted") return (out.textContent = "Blocked: allow notifications for this site in the browser (padlock left of the address).");
+										new Notification("Little Black Book", { body: "Desktop notifications work. Check Windows' notification settings / Focus if you didn't see this.", tag: "fm-test" });
+										out.textContent = "Sent.";
 									},
-									"Test desktop notification"
-								),
-								h("span", { class: "fm-muted", style: "margin-left:8px" }, perm === "granted" ? "Allowed" : perm === "default" ? "Not asked yet" : "")
-							)
+								},
+								"Test desktop notification"
+							),
+							h("span", { class: "fm-muted", style: "margin-left:8px" }, perm === "granted" ? "Allowed" : perm === "default" ? "Not asked yet" : "")
+						)
 						: null,
 					perm === "unsupported" ? h("p", { class: "fm-muted" }, "This browser doesn't support notifications.") : null,
 
@@ -3347,9 +3378,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					const KIND = { indexedDB: "databases", caches: "cached files", serviceWorkerRegistrations: "service worker", fileSystem: "files" };
 					const parts = st.details
 						? Object.entries(st.details)
-								.filter(([, n]) => n > 0)
-								.sort((a, b) => b[1] - a[1])
-								.map(([k, n]) => `${KIND[k] || k} ${fmtBytes(n)}`)
+							.filter(([, n]) => n > 0)
+							.sort((a, b) => b[1] - a[1])
+							.map(([k, n]) => `${KIND[k] || k} ${fmtBytes(n)}`)
 						: [];
 					siteEl.replaceChildren(
 						`The whole game site uses ${fmtBytes(st.usage)} in this browser${parts.length ? ` (${parts.join(", ")})` : ""}. ` +
@@ -3497,7 +3528,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			await txDone(t);
 			chatMember = null;
 			convView = null;
-			refreshBadge();
+			refreshBadge().catch((err) => console.warn(TAG, err));
 			await reload(true);
 		}
 
@@ -3710,7 +3741,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					{
 						class: hiddenTypes.has(label) ? "off" : "",
 						onclick: (e) => {
-							hiddenTypes.has(label) ? hiddenTypes.delete(label) : hiddenTypes.add(label);
+							if (hiddenTypes.has(label)) hiddenTypes.delete(label);
+							else hiddenTypes.add(label);
 							e.currentTarget.classList.toggle("off", hiddenTypes.has(label));
 							drawLines(view);
 						},
@@ -3892,6 +3924,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const out = [];
 			const range = IDBKeyRange.bound([me(), 0], [me(), Infinity]);
 			await new Promise((resolve, reject) => {
+				/** @type {IDBRequest<IDBCursorWithValue | null>} */
 				const req = storeOf(storeName).index("ownerTs").openCursor(range, "prev");
 				req.onsuccess = () => {
 					const cur = req.result;
@@ -3899,7 +3932,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					if ((cur.value.text || "").toLowerCase().includes(q)) out.push(cur.value);
 					cur.continue();
 				};
-				req.onerror = () => reject(req.error);
+				req.onerror = () => reject(req.error instanceof Error ? req.error : new Error("IndexedDB request failed"));
 			});
 			return out;
 		}
@@ -3923,24 +3956,24 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					h("h3", { style: "margin-top:0" }, `Room messages (${lines.length}${lines.length >= 300 ? "+" : ""})`),
 					lines.length
 						? lines.map((l) =>
-								h(
-									"div",
-									{ class: "fm-hit", onclick: () => openRoom(byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)") },
-									h("div", { class: "fm-muted", style: "font-size:12px" }, `${byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)"} · ${fmtDate(l.ts)}`),
-									lineEl(l, q, peopleFor(l.session))
-								)
+							h(
+								"div",
+								{ class: "fm-hit", onclick: () => openRoom(byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)") },
+								h("div", { class: "fm-muted", style: "font-size:12px" }, `${byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)"} · ${fmtDate(l.ts)}`),
+								lineEl(l, q, peopleFor(l.session))
 							)
+						)
 						: h("p", { class: "fm-muted" }, "None."),
 					h("h3", {}, `Beeps & whispers (${dms.length}${dms.length >= 200 ? "+" : ""})`),
 					dms.length
 						? dms.map((m) =>
-								h(
-									"div",
-									{ class: "fm-hit", onclick: () => open(m.member, "chats") },
-									h("div", { class: "fm-muted", style: "font-size:12px" }, `${m.dir === "out" ? "You → " : ""}${displayName(m.member)} · ${m.kind} · ${fmtDate(m.ts)}`),
-									lineEl({ ...m, type: m.kind === "whisper" ? "Whisper" : "Chat" }, q)
-								)
+							h(
+								"div",
+								{ class: "fm-hit", onclick: () => open(m.member, "chats") },
+								h("div", { class: "fm-muted", style: "font-size:12px" }, `${m.dir === "out" ? "You → " : ""}${displayName(m.member)} · ${m.kind} · ${fmtDate(m.ts)}`),
+								lineEl({ ...m, type: m.kind === "whisper" ? "Whisper" : "Chat" }, q)
 							)
+						)
 						: h("p", { class: "fm-muted" }, "None.")
 				)
 			);
@@ -4000,7 +4033,8 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		async function toggleBell(member) {
 			let on = false;
 			await updateRecord(member, (r) => (on = r.notifyOnline = !r.notifyOnline));
-			on ? bells.add(member) : bells.delete(member);
+			if (on) bells.add(member);
+			else bells.delete(member);
 			markSyncDirty();
 			if (on && typeof Notification !== "undefined" && Notification.permission === "default") await Notification.requestPermission();
 			if (on) requestOnlineFriends(); // starting point for this friend
@@ -4152,44 +4186,44 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 							applied.length && access.ok ? restraintTools(snapshotOutfit(d), canWearHere) : null,
 							applied.length
 								? h(
-										"table",
-										{},
-										h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Lock"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
-										applied.map((a) =>
-											h(
-												"tr",
-												{},
-												h("td", {}, groupLabel(fam, a.Group)),
-												h("td", {}, assetLabel(fam, a.Group, a.Name)),
-												h("td", {}, colorSwatches(a.Color) || h("span", { class: "fm-muted" }, "default")),
-												h("td", {}, itemSettings(a)),
-												h("td", {}, lockCell(a)),
-												h("td", {}, craftCell(a)),
+									"table",
+									{},
+									h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Lock"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
+									applied.map((a) =>
+										h(
+											"tr",
+											{},
+											h("td", {}, groupLabel(fam, a.Group)),
+											h("td", {}, assetLabel(fam, a.Group, a.Name)),
+											h("td", {}, colorSwatches(a.Color) || h("span", { class: "fm-muted" }, "default")),
+											h("td", {}, itemSettings(a)),
+											h("td", {}, lockCell(a)),
+											h("td", {}, craftCell(a)),
 												canWearHere ? h("td", {}, wearButton(restraintPiece(a))) : null
-											)
 										)
 									)
+								)
 								: h("p", { class: "fm-muted" }, "None."),
 							h("h3", {}, `Outfit (${outfit.length})`),
 							outfit.length ? (access.ok ? outfitTools(snapshotOutfit(d), rec.member !== me(), saveOutfitButton(d, rec)) : outfitLocked(access.why)) : null,
 							outfit.length
 								? h(
-										"table",
-										{},
-										h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
-										outfit.map((a) =>
-											h(
-												"tr",
-												{},
-												h("td", {}, groupLabel(fam, a.Group)),
-												h("td", {}, assetLabel(fam, a.Group, a.Name)),
-												h("td", {}, colorSwatches(a.Color) || h("span", { class: "fm-muted" }, "default")),
-												h("td", {}, itemSettings(a)),
-												h("td", {}, craftCell(a)),
+									"table",
+									{},
+									h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
+									outfit.map((a) =>
+										h(
+											"tr",
+											{},
+											h("td", {}, groupLabel(fam, a.Group)),
+											h("td", {}, assetLabel(fam, a.Group, a.Name)),
+											h("td", {}, colorSwatches(a.Color) || h("span", { class: "fm-muted" }, "default")),
+											h("td", {}, itemSettings(a)),
+											h("td", {}, craftCell(a)),
 												canWearHere ? h("td", {}, wearButton(a)) : null
-											)
 										)
 									)
+								)
 								: h("p", { class: "fm-muted" }, "None.")
 						),
 						previewCanvas(d.Appearance, fam)
@@ -4446,7 +4480,9 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				let interact = true;
 				try {
 					if (typeof ServerChatRoomGetAllowItem === "function") interact = !c || !!ServerChatRoomGetAllowItem(Player, c);
-				} catch {}
+				} catch {
+					// not available in this game or browser: the fallback is used
+				}
 				if (!interact) return { ok: false, why: "They don't allow you to interact with them" };
 			}
 			if (prefs.outfitNeedWardrobe) {
@@ -4469,15 +4505,15 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const result = h("span", { class: "fm-muted", style: "font-size:12px" });
 			const wearAll = canWear
 				? confirmButton(
-						"Wear whole outfit",
-						() => {
-							const res = wearPieces(snap.pieces);
-							result.textContent = `Wore ${res.applied.length} of ${snap.pieces.length}${res.skipped.length ? ` · ${res.skipped.length} skipped (hover)` : ""}`;
-							result.title = res.skipped.join("\n");
-						},
-						{ title: "Puts on every piece you're allowed to; your other slots stay as they are" },
-						{ armed: "Click again to wear", busy: "Wearing…" }
-					)
+					"Wear whole outfit",
+					() => {
+						const res = wearPieces(snap.pieces);
+						result.textContent = `Wore ${res.applied.length} of ${snap.pieces.length}${res.skipped.length ? ` · ${res.skipped.length} skipped (hover)` : ""}`;
+						result.title = res.skipped.join("\n");
+					},
+					{ title: "Puts on every piece you're allowed to; your other slots stay as they are" },
+					{ armed: "Click again to wear", busy: "Wearing…" }
+				)
 				: null;
 			return h(
 				"div",
@@ -4502,15 +4538,15 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const crafted = list.filter((r) => r.craftName).length;
 			const wearAll = canWear
 				? confirmButton(
-						"Put restraints on me",
-						() => {
-							const res = wearPieces(list);
-							result.textContent = `Put on ${res.applied.length} of ${list.length}${res.skipped.length ? ` · ${res.skipped.length} skipped (hover)` : ""}`;
-							result.title = res.skipped.join("\n");
-						},
-						{ title: "Puts every restraint you're allowed to use on yourself onto you, without locks. Crafted ones go on as the plain item." },
-						{ armed: "Click again to put on", busy: "Putting on…" }
-					)
+					"Put restraints on me",
+					() => {
+						const res = wearPieces(list);
+						result.textContent = `Put on ${res.applied.length} of ${list.length}${res.skipped.length ? ` · ${res.skipped.length} skipped (hover)` : ""}`;
+						result.title = res.skipped.join("\n");
+					},
+					{ title: "Puts every restraint you're allowed to use on yourself onto you, without locks. Crafted ones go on as the plain item." },
+					{ armed: "Click again to put on", busy: "Putting on…" }
+				)
 				: null;
 			return h(
 				"div",
@@ -4550,7 +4586,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		function previewCanvas(bundle, family) {
 			const cv = h("canvas", { class: "fm-preview", width: 300, height: 555 });
-			previewChain = previewChain.then(() => drawPreview(cv, bundle, family)).catch((e) => console.warn(TAG, "preview failed", e));
+			previewChain = previewChain.then(() => drawPreview(cv, bundle, family)).catch((err) => console.warn(TAG, "preview failed", err));
 			return cv;
 		}
 
@@ -4562,7 +4598,6 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const ctx = cv.getContext("2d");
 			// The character canvas has room above/below for tall items; the body sits in a CanvasDrawWidth x 1000 box
 			// starting at CanvasUpperOverflow. Crop to that box plus a margin (hats, wings), keeping the preview's aspect.
-			const drawW = typeof CanvasDrawWidth === "number" ? CanvasDrawWidth : 500;
 			const upper = typeof CanvasUpperOverflow === "number" ? CanvasUpperOverflow : 700;
 			const sh = 1000 + 80;
 			const sw = Math.round((sh * cv.width) / cv.height);
@@ -4587,7 +4622,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		function outfitBundle(o) {
 			const byGroup = new Map(o.full.map((r) => [r.G, { Group: r.G, Name: r.A, Color: r.C }]));
 			for (const p of [...o.pieces, ...(o.restraints || [])]) {
-				const { craftName, ...item } = p;
+				const { craftName: _craftName, ...item } = p;
 				byGroup.set(p.Group, item);
 			}
 			return [...byGroup.values()];
@@ -4636,7 +4671,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 								btn.textContent = "Couldn't save";
 								btn.disabled = false;
 							}
-							reload();
+							reload().catch((err) => console.warn(TAG, err));
 						},
 					},
 					label
@@ -4789,13 +4824,13 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			const out = [];
 			for (const [k, idx] of Object.entries(rec)) {
 				if (typed && k === "typed") {
-					const o = typed.options[idx];
-					if (o) out.push(textOr(`${typed.dialogPrefix?.option || ""}${o.Name}`, o.Name));
+					const opt = typed.options[idx];
+					if (opt) out.push(textOr(`${typed.dialogPrefix?.option || ""}${opt.Name}`, opt.Name));
 					continue;
 				}
-				const mod = modular?.modules?.find((m) => m.Key === k);
-				const o = mod?.Options?.[idx];
-				if (mod && o) out.push(`${textOr(`${modular.dialogPrefix?.module || ""}${mod.Name}`, mod.Name)}: ${textOr(`${modular.dialogPrefix?.option || ""}${o.Name}`, o.Name)}`);
+				const modDef = modular?.modules?.find((m) => m.Key === k);
+				const o = modDef?.Options?.[idx];
+				if (modDef && o) out.push(`${textOr(`${modular.dialogPrefix?.module || ""}${modDef.Name}`, modDef.Name)}: ${textOr(`${modular.dialogPrefix?.option || ""}${o.Name}`, o.Name)}`);
 				else if (idx) out.push(`${k}: ${idx}`);
 			}
 			return out;
@@ -4946,10 +4981,10 @@ Not in the add-on directory: opens a GitHub search.`;
 						"Properties",
 						effects.length
 							? h(
-									"div",
-									{},
-									effects.map(([k, v]) => h("div", {}, h("b", {}, `${craftPropName(k)}${v > 1 ? ` ×${v}` : ""}`), craftPropDesc(k) ? ` — ${craftPropDesc(k)}` : ""))
-								)
+								"div",
+								{},
+								effects.map(([k, v]) => h("div", {}, h("b", {}, `${craftPropName(k)}${v > 1 ? ` ×${v}` : ""}`), craftPropDesc(k) ? ` — ${craftPropDesc(k)}` : ""))
+							)
 							: `${craftPropName("Normal")}${craftPropDesc("Normal") ? ` — ${craftPropDesc("Normal")}` : ""}`,
 					],
 					["Difficulty bonus", c.DifficultyFactor ? `+${c.DifficultyFactor}` : null],
@@ -5156,13 +5191,13 @@ Not in the add-on directory: opens a GitHub search.`;
 			for (const n of observedLog.children) captureLine(n);
 		}
 		const here = inRoom();
-		if (here && prefs.logRooms && (!session || session.closed || session.owner !== me()) && !resuming && currentRoomName()) resumeCurrentRoom();
+		if (here && prefs.logRooms && (!session || session.closed || session.owner !== me()) && !resuming && currentRoomName()) resumeCurrentRoom().catch((err) => console.warn(TAG, err));
 		else if (!here && session && !session.closed) closeSession();
 	}, 1000);
 
 	const openBook = (args) => {
 		const n = parseInt(String(args || "").trim(), 10);
-		ui.open(Number.isFinite(n) ? n : undefined, Number.isFinite(n) ? "profiles" : undefined);
+		ui.open(Number.isFinite(n) ? n : undefined, Number.isFinite(n) ? "profiles" : undefined).catch((err) => console.warn(TAG, err));
 	};
 	const commands = [
 		{ Pref: "cmdBook", Tag: "book", Description: "[member number]: open your Little Black Book (a profile, if given)", Action: openBook },
@@ -5172,7 +5207,7 @@ Not in the add-on directory: opens a GitHub search.`;
 			Description: "[member number]: open your chats (a conversation, if given)",
 			Action: (args) => {
 				const n = parseInt(String(args || "").trim(), 10);
-				ui.open(Number.isFinite(n) ? n : undefined, "chats");
+				ui.open(Number.isFinite(n) ? n : undefined, "chats").catch((err) => console.warn(TAG, err));
 			},
 		},
 	];
@@ -5209,7 +5244,9 @@ Not in the add-on directory: opens a GitHub search.`;
 				try {
 					s.offAny(onServerEvent);
 					s.offAnyOutgoing?.(onClientEvent);
-				} catch {}
+				} catch {
+					// already done or gone: nothing to undo
+				}
 			}
 			logObserver?.disconnect();
 			clearInterval(tickTimer);
@@ -5228,4 +5265,4 @@ Not in the add-on directory: opens a GitHub search.`;
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded`);
-})();
+})().catch((err) => console.error("[BlackBook]", err));

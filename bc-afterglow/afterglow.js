@@ -6,11 +6,12 @@
 // It only watches the game's own orgasm functions (ModSDK hooks that call the game first and change nothing).
 // It sends nothing unless you share: then, only to someone the game's own permissions let see them, and only
 // when their Afterglow asks. Counts and records go with your account; the event log stays in this browser.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -62,14 +63,14 @@
 		totals: zeroCounts(),
 		base: zeroCounts(), // from before Afterglow, entered by hand
 		last: {},
-		lastOrgasmAt: null,
+		lastOrgasmAt: /** @type {number | null} */ (null),
 		streakStart: Date.now(),
 		streak: { denied: 0, edged: 0, ruined: 0, resisted: 0 },
 		rec: { gap: null, gapOnline: null, denied: 0, edged: 0, ruined: 0, resisted: 0 },
 		show: "orgasm", // what the dock tab shows: the orgasm clock, or the denied / ruined / resisted box
 		held: { denied: 0, edged: 0, ruined: 0 }, // since when a denial / edging / ruin effect has been on you, 0: none now
 		edgeMs: 0, // time edged (online, with an edging effect on you), since edgeSince
-		heldEdge: null, // time edged since the current edging timer started (null: none, or it started before 0.8.0)
+		heldEdge: /** @type {number | null} */ (null), // time edged since the current edging timer started (null: none, or it started before 0.8.0)
 		edgeSince: Date.now(), // when Afterglow started counting time edged, or it was last reset
 		edgeDay: { d: "", ms: 0 }, // time edged today (d: the local date it's for)
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
@@ -155,7 +156,9 @@
 		aliveAt = now;
 		try {
 			localStorage.setItem(aliveKey(), String(now));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 		session.last = now;
 		writeSession();
 		if (force || now - aliveSavedAt >= ALIVE_SAVE_MS) {
@@ -217,14 +220,18 @@
 				for (const k of Object.keys(out)) if (Number.isFinite(raw[k]) && raw[k] >= 0) out[k] = raw[k];
 				return out;
 			}
-		} catch {}
+		} catch {
+			// missing or unreadable: the defaults stay
+		}
 		return newSession();
 	}
 	function writeSession() {
 		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
 		try {
 			localStorage.setItem(sessionKey(), JSON.stringify(session));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	}
 	const logKey = () => `Afterglow.log.${Player.MemberNumber || 0}`;
 	function readLog() {
@@ -232,9 +239,9 @@
 			const raw = JSON.parse(localStorage.getItem(logKey()) || "[]");
 			return Array.isArray(raw)
 				? raw
-						.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && (KINDS[e[1]] || e[1] === "away"))
-						.map((e) => (e[1] === "denied" && e[3] === "edge" ? [e[0], "edged", e[2]] : e)) // before 0.4.0, edges were denials
-						.slice(-LOG_MAX)
+					.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && (KINDS[e[1]] || e[1] === "away"))
+					.map((e) => (e[1] === "denied" && e[3] === "edge" ? [e[0], "edged", e[2]] : e)) // before 0.4.0, edges were denials
+					.slice(-LOG_MAX)
 				: [];
 		} catch {
 			return [];
@@ -243,7 +250,9 @@
 	function writeLog() {
 		try {
 			localStorage.setItem(logKey(), JSON.stringify(log));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	}
 
 	// ---------- counting ----------
@@ -608,7 +617,6 @@
 			if (!on) return;
 			panel.setSummary(clockText(state.show, true));
 			if (!panel.isOpen()) return root.replaceChildren();
-			const now = Date.now();
 			const cur = elapsed(state.streakStart);
 			const g = recGap();
 			const beating = !g || cur > g.ms;
@@ -662,13 +670,13 @@
 							{ class: "ag-log" },
 							log.length
 								? log
-										.slice(-50)
-										.reverse()
-										.map((e) =>
+									.slice(-50)
+									.reverse()
+									.map((e) =>
 											e[1] === "away"
 												? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(e[3])}`)
 												: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : e[3] === "failed" ? ` (${KINDS.failed.icon} resist failed)` : e[3] === "belt" ? " (seen by your belt)" : ""}${e[2] ? ` in ${e[2]}` : ""}`)
-										)
+									)
 								: h("div", { class: "hint" }, "Nothing yet.")
 						)
 					)
@@ -702,7 +710,9 @@
 							secOpen[key] = !open;
 							try {
 								localStorage.setItem(uiKey(), JSON.stringify(secOpen));
-							} catch {}
+							} catch {
+								// storage full or blocked: carries on without saving
+							}
 							render();
 						},
 					},
@@ -819,11 +829,11 @@
 				held.map((k) => h("div", { class: "ag-held", "data-sh-held": `${m}|${k}` }, sharedHeld(x, k))),
 				r
 					? h(
-							"div",
-							{},
-							`🏆 ${r.gap ? `${r.gap.exact ? "" : "≥ "}${fmtSpan(r.gap.ms)}${r.online ? " online" : ""}` : "no record yet"}` +
+						"div",
+						{},
+						`🏆 ${r.gap ? `${r.gap.exact ? "" : "≥ "}${fmtSpan(r.gap.ms)}${r.online ? " online" : ""}` : "no record yet"}` +
 								(r.edge.all >= 1000 ? ` · 🫠 time edged ${edgeText(r.edge.session)} session, ${edgeText(r.edge.all)} all` : "")
-						)
+					)
 					: null,
 				c ? h("div", { class: "hint" }, `Today: ${line(c.today)}`) : null,
 				c ? h("div", { class: "hint" }, `All: ${line(c.all)}`) : null
@@ -976,7 +986,7 @@
 		}
 
 		// Once a second: the running clocks
-		function tick() {
+		function tickClocks() {
 			if (!panel || !(Player.MemberNumber && loadedFor === Player.MemberNumber)) return;
 			panel.setSummary(clockText(state.show, true));
 			for (const el of root?.querySelectorAll("[data-ag-clock]") || []) {
@@ -1021,7 +1031,7 @@
 			const rec = root?.querySelector('[data-ag="rec"]');
 			if (rec && g && elapsed(state.streakStart) > g.ms && !rec.classList.contains("new")) render();
 		}
-		return { mount, unmount, render, tick, isOpen: () => !!panel?.isOpen(), open: () => (panel?.open(), lookNow(), render()) };
+		return { mount, unmount, render, tick: tickClocks, isOpen: () => !!panel?.isOpen(), open: () => (panel?.open(), lookNow(), render()) };
 	})();
 
 	// ---------- the Modular Chastity Belt's own record ----------
@@ -1253,7 +1263,10 @@
 		const now = Date.now();
 		for (const [m, at] of askers) {
 			if (now - at > ASK_OTHERS_MS + 60_000 || !charOf(m)) askers.delete(m);
-			else (watchers.set(m, now), answer(m));
+			else {
+				watchers.set(m, now);
+				answer(m);
+			}
 		}
 	}
 
@@ -1349,6 +1362,10 @@
 	// The tick runs off a worker: a background tab's own timers slow to once a minute after a few minutes, which made
 	// time edged and the "still here" marks coarse. A worker's timers aren't slowed, and its messages arrive on time.
 	// If a worker can't start (blocked by the page's security policy), plain setInterval is the fallback.
+	/**
+	 * @param {() => void} fn
+	 * @param {number} ms
+	 */
 	function startTicker(fn, ms) {
 		let worker = null;
 		let url = null;
@@ -1439,4 +1456,4 @@
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded`);
-})();
+})().catch((err) => console.error("[Afterglow]", err));

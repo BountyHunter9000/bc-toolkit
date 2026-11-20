@@ -5,11 +5,12 @@
 // With this add-on switched on, a remote someone else left you with works on your own vibrators while you're tied:
 // either they put it in your hand, or they tied your arms while you were holding it. Everything else the game,
 // your owner or BCX says about remotes still applies. Off until you switch it on.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_HeldRemote", fullName: "BC Toolkit: Held Remote", version: "0.1.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-held-remote" };
+	const MOD_INFO = { name: "BCT_HeldRemote", fullName: "BC Toolkit: Held Remote", version: "0.1.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-held-remote" };
 	const TAG = "[HeldRemote]";
 	const ON_KEY = (m) => `HeldRemote.${m}`;
 	const GRANT_KEY = (m) => `HeldRemote.grant.${m}`;
@@ -43,7 +44,9 @@
 		try {
 			if (v == null) localStorage.removeItem(k);
 			else localStorage.setItem(k, v);
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	};
 
 	function load(m) {
@@ -54,7 +57,9 @@
 			try {
 				const g = JSON.parse(lsGet(GRANT_KEY(m)) || "null");
 				if (g && Number.isInteger(g.by) && ["given", "tied", "relog"].includes(g.how)) grant = g;
-			} catch {}
+			} catch {
+				// missing or unreadable: the defaults stay
+			}
 		}
 	}
 	const saveGrant = () => member && lsSet(GRANT_KEY(member), grant ? JSON.stringify(grant) : null);
@@ -238,7 +243,10 @@
 		let warned = false;
 		function render() {
 			if (!window.BCDock) {
-				if (!warned) (warned = true), console.warn(TAG, "bc-dock.js isn't loaded, so there's no button. /heldremote still works.");
+				if (!warned) {
+					warned = true;
+					console.warn(TAG, "bc-dock.js isn't loaded, so there's no button. /heldremote still works.");
+				}
 				return;
 			}
 			if (!tab) tab = BCDock.add({ id: "held-remote", title: "Held Remote", icon: "🎚", order: 70, version: MOD_INFO.version, visible: !!member, onClick: () => setOn(!on) });
@@ -278,11 +286,17 @@
 	function tick() {
 		addCommand();
 		const m = Player?.MemberNumber || null;
-		if (m !== member) (load(m), (startCheck = true));
+		if (m !== member) {
+			load(m);
+			startCheck = true;
+		}
 		checkStart();
 		check();
 		const sig = `${member}|${on}|${grant?.by}|${usable()}`;
-		if (sig !== lastSig) (lastSig = sig), ui.render();
+		if (sig !== lastSig) {
+			lastSig = sig;
+			ui.render();
+		}
 	}
 	tick();
 	const timer = setInterval(tick, 1000);
@@ -307,4 +321,4 @@
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded`);
-})();
+})().catch((err) => console.error("[HeldRemote]", err));

@@ -3,11 +3,12 @@
 // Vibe Link for Bondage Club
 // Drives real toys (through Intiface Central / buttplug.io) from the vibrators your character wears.
 // Phase 1: five-level mapping, smooth ramps between levels, safety stop, strength cap.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.0", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
+	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -76,7 +77,6 @@
 		},
 		v: 2,
 	};
-	const PRESET_FIELDS = ["levels", "rampUp", "rampDown", "curve", "cap"];
 	const MAX_PRESETS = 20;
 	const MAX_SAVED = 40;
 	const SAVED_MAX_CHARS = 60_000; // saved patterns go with your account settings, so they're kept small
@@ -85,11 +85,15 @@
 
 	try {
 		local = { ...local, ...JSON.parse(localStorage.getItem(LOCAL_KEY) || "{}") };
-	} catch {}
+	} catch {
+		// missing or unreadable: the defaults stay
+	}
 	const saveLocal = () => {
 		try {
 			localStorage.setItem(LOCAL_KEY, JSON.stringify(local));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	};
 
 	function sanitizeSettings(s) {
@@ -228,7 +232,9 @@
 				if (a?.Group?.Category === "Item" && Array.isArray(a.AllowEffect) && a.AllowEffect.includes("Vibrating"))
 					groups.set(a.Group.Name, a.Group.Description || a.Group.Name);
 			}
-		} catch {}
+		} catch {
+			// not critical: carries on without it
+		}
 		if (!groups.size)
 			for (const g of ["ItemVulva", "ItemButt", "ItemNipples", "ItemBreast", "ItemVulvaPiercings", "ItemNipplesPiercings", "ItemPelvis"]) groups.set(g, g.replace(/^Item/, ""));
 		slotCache = [...groups].map(([name, label]) => ({ name, label })).sort((a, b) => a.label.localeCompare(b.label));
@@ -237,7 +243,7 @@
 	const slotLabel = (name) => vibeSlots().find((s) => s.name === name)?.label || name;
 	// What you wear in a slot: { item, name, vibrates } (item null when empty)
 	function wornIn(slot) {
-		const item = loggedIn() ? Player.Appearance.find((a) => a?.Asset?.Group?.Name === slot) : null;
+		const item = loggedIn() ? Player.Appearance.find((it) => it?.Asset?.Group?.Name === slot) : null;
 		if (!item) return { item: null, name: "", vibrates: false };
 		const a = item.Asset || {};
 		const has = (list) => Array.isArray(list) && list.includes("Vibrating");
@@ -247,10 +253,13 @@
 	// Changes whenever what you wear in those slots changes (so the dropdowns can refresh)
 	const wornSig = () => vibeSlots().map((sl) => { const w = wornIn(sl.name); return w.item ? `${w.name}${w.vibrates ? "~" : ""}` : ""; }).join("|");
 
-	/** What the game says is in a slot: { item, level } with level -1 (off/none) .. 3 */
+	/**
+	 * What the game says is in a slot: { item, level } with level -1 (off/none) .. 3
+	 * @param {string} slot
+	 */
 	function slotState(slot) {
 		if (!loggedIn() || !slot) return { item: null, level: -1 };
-		const item = Player.Appearance.find((a) => a?.Asset?.Group?.Name === slot);
+		const item = Player.Appearance.find((it) => it?.Asset?.Group?.Name === slot);
 		const i = item?.Property?.Intensity;
 		return { item, level: typeof i === "number" && i >= 0 && i <= 3 ? Math.round(i) : -1 };
 	}
@@ -280,7 +289,10 @@
 		const m = Math.ceil(ms / 60_000);
 		return m >= 1440 ? `${Math.floor(m / 1440)}d ${Math.floor((m % 1440) / 60)}h` : m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m}m`;
 	};
-	/** The items that matter for arousal on a character: vibrating, edging/denial/ruin, or crafted to change orgasms */
+	/**
+	 * The items that matter for arousal on a character: vibrating, edging/denial/ruin, or crafted to change orgasms
+	 * @param {Character} C
+	 */
 	function inspectItems(C) {
 		const out = [];
 		for (const item of Array.isArray(C?.Appearance) ? C.Appearance : []) {
@@ -340,7 +352,7 @@
 				try {
 					ws = new WebSocket(url);
 				} catch (e) {
-					reject(e);
+					reject(e instanceof Error ? e : new Error(String(e)));
 					return;
 				}
 				this.ws = ws;
@@ -348,7 +360,7 @@
 				const fail = (err) => {
 					if (!settled) {
 						settled = true;
-						reject(err);
+						reject(err instanceof Error ? err : new Error(String(err)));
 					}
 				};
 				ws.onmessage = (ev) => this.handle(ev.data);
@@ -390,7 +402,9 @@
 			if (ws && ws.readyState <= 1) {
 				try {
 					ws.close();
-				} catch {}
+				} catch {
+					// already done or gone: nothing to undo
+				}
 			}
 		}
 
@@ -405,7 +419,7 @@
 				}, 8000);
 				this.pending.set(id, {
 					resolve: (m) => (clearTimeout(timer), resolve(m)),
-					reject: (e) => (clearTimeout(timer), reject(e)),
+					reject: (e) => (clearTimeout(timer), reject(e instanceof Error ? e : new Error(String(e)))),
 				});
 				this.ws.send(JSON.stringify([{ [type]: { Id: id, ...body } }]));
 			});
@@ -442,7 +456,9 @@
 				// sent directly so it still goes out during page unload
 				try {
 					this.ws.send(JSON.stringify([{ StopAllDevices: { Id: this.nextId++ } }]));
-				} catch {}
+				} catch {
+					// already done or gone: nothing to undo
+				}
 			}
 		}
 	}
@@ -487,7 +503,6 @@
 	// key, so links made before motors were split still work; motor 2 and up are "<key> motor N".
 	function makeToys(d) {
 		const scalar = Array.isArray(d.DeviceMessages?.ScalarCmd) ? d.DeviceMessages.ScalarCmd : [];
-		const sensors = Array.isArray(d.DeviceMessages?.SensorReadCmd) ? d.DeviceMessages.SensorReadCmd : [];
 		const vibes = scalar.map((f, i) => ({ Index: i, StepCount: Math.max(1, f.StepCount || 20), type: f.ActuatorType })).filter((f) => f.type === "Vibrate");
 		const name = String(d.DeviceName || "Toy");
 		const display = String(d.DeviceDisplayName || name);
@@ -540,9 +555,9 @@
 		const list = makeToys(d);
 		for (const toy of list) {
 			toys.set(toy.id, toy);
-			readBattery(toy);
+			readBattery(toy).catch((err) => console.warn(TAG, err));
 		}
-		if (scanning) stopScan();
+		if (scanning) stopScan().catch((err) => console.warn(TAG, err));
 		const name = String(d.DeviceDisplayName || d.DeviceName || "Toy");
 		const shown = list.filter(toyShown);
 		const linked = shown.filter((t) => settings.links[t.key]);
@@ -576,7 +591,10 @@
 		return preset;
 	}
 
-	/** Applies a preset; links for toys that aren't connected are kept for when they connect */
+	/**
+	 * Applies a preset; links for toys that aren't connected are kept for when they connect
+	 * @param {{ name: string, links: Record<string, string> }} preset
+	 */
 	function loadPreset(preset) {
 		settings.links = { ...preset.links };
 		Object.assign(settings, sanitizeSettings.tuning(preset));
@@ -650,7 +668,7 @@
 	// Wait in line; connect as soon as the tab that has Intiface lets go
 	function queueForIntiface() {
 		if (lockWait || releaseLock) return;
-		acquireLock(true).then((got) => got && loggedIn() && connect());
+		acquireLock(true).then((got) => got && loggedIn() && connect()).catch((err) => console.warn(TAG, err));
 	}
 
 	chan?.addEventListener("message", (e) => {
@@ -737,7 +755,9 @@
 			await client.request("StartScanning");
 			scanning = true;
 			scanTimer = setTimeout(stopScan, SCAN_MS);
-		} catch {}
+		} catch {
+			// not critical: carries on without it
+		}
 		ui.renderSoon();
 	}
 	async function stopScan() {
@@ -745,7 +765,9 @@
 		if (scanning && client.connected) {
 			try {
 				await client.request("StopScanning");
-			} catch {}
+			} catch {
+				// already done or gone: nothing to undo
+			}
 		}
 		scanning = false;
 		ui.renderSoon();
@@ -759,7 +781,9 @@
 			const [lo, hi] = toy.batteryRange;
 			if (typeof v === "number") toy.battery = Math.round(((v - lo) / (hi - lo || 100)) * 100);
 			ui.renderSoon();
-		} catch {}
+		} catch {
+			// not critical: carries on without it
+		}
 	}
 
 	// ---------- sync engine ----------
@@ -767,7 +791,11 @@
 	let tabHidden = document.hidden;
 	const ease = (x) => x * x * (3 - 2 * x);
 
-	/** Where a toy should be heading right now, 0..1 */
+	/**
+	 * Where a toy should be heading right now, 0..1
+	 * @param {any} toy
+	 * @param {number} now
+	 */
 	function desiredStrength(toy, now) {
 		toy.followPat = false;
 		if (!toyShown(toy)) return 0;
@@ -1108,7 +1136,9 @@
 		let json = null;
 		try {
 			json = typeof LZString?.decompressFromBase64 === "function" ? LZString.decompressFromBase64(body) : null;
-		} catch {}
+		} catch {
+			// missing or unreadable: the defaults stay
+		}
 		if (!json || json[0] !== "{") {
 			try {
 				json = decodeURIComponent(escape(atob(body)));
@@ -1157,7 +1187,9 @@
 					.map((x) => ({ name: String(x?.name || "").trim().slice(0, 40), p: cleanPattern(x?.p) }))
 					.filter((x) => x.p)
 					.map((x) => ({ ...x, name: x.name || patLabel(x.p) }));
-		} catch {}
+		} catch {
+			// missing or unreadable: the defaults stay
+		}
 		return String(text || "")
 			.split(/\r?\n/)
 			.slice(0, 200)
@@ -1192,7 +1224,9 @@
 					.filter((e) => e && Number.isFinite(e.at) && typeof e.text === "string")
 					.slice(-HIST_MAX)
 					.map((e) => ({ at: e.at, dir: e.dir === "out" ? "out" : "in", who: Number(e.who) || 0, name: String(e.name || "").slice(0, 40), ev: String(e.ev || "").slice(0, 10), text: e.text.slice(0, 200), ...(e.p && cleanPattern(e.p) ? { p: cleanPattern(e.p) } : {}) }));
-		} catch {}
+		} catch {
+			// missing or unreadable: the defaults stay
+		}
 		histCache = { key: histKey(), list };
 		return list;
 	}
@@ -1318,7 +1352,6 @@
 		recFinish(lane, { who: rc.by, text: isSelf(rc.by) ? `You played live${on}` : `${nameOf(rc.by)} controlled you live${on}` });
 	}
 	const toyName = (key) => (key === ALL ? "all toys" : toys.get?.(key)?.display || [...toys.values()].find((t) => t.key === key)?.display || key);
-	const LIVE_GAP_MS = 50; // a controller sends each change, at most 20 a second (the last value always goes out)
 	const REMOTE_GLIDE_MIN = 30; // the wearer glides between values over the time between them, within these limits
 	const REMOTE_GLIDE_MAX = 250;
 	let statusAt = 0;
@@ -1422,7 +1455,7 @@
 	}
 
 	function vibeItemIn(slot) {
-		const item = typeof InventoryGet === "function" ? InventoryGet(Player, slot) : Player.Appearance.find((a) => a?.Asset?.Group?.Name === slot);
+		const item = typeof InventoryGet === "function" ? InventoryGet(Player, slot) : Player.Appearance.find((it) => it?.Asset?.Group?.Name === slot);
 		if (!item || item.Asset?.Archetype !== "vibrating" || typeof ExtendedItemSetOptionByRecord !== "function") return null;
 		return item;
 	}
@@ -1614,11 +1647,11 @@
 	const isSelf = (m) => m != null && m === Player.MemberNumber;
 	function rcSend(target, payload) {
 		if (isSelf(target)) {
-			const msg = { v: RC_V, ...payload };
+			const own = { v: RC_V, ...payload };
 			lastSentTo.set(target, Date.now());
 			setTimeout(() => {
 				lastHeard.set(target, Date.now());
-				if (msg.t !== "hb") rcHandle(target, msg);
+				if (own.t !== "hb") rcHandle(target, own);
 			});
 			return;
 		}
@@ -2008,7 +2041,10 @@
 		c.ptsKey = key;
 		c.playingBy = c.playingBy || new Map();
 		c.liveBy = c.liveBy || new Map();
-		if (key === ALL) (c.playingBy.clear(), c.liveBy.clear());
+		if (key === ALL) {
+			c.playingBy.clear();
+			c.liveBy.clear();
+		}
 		c.playingBy.delete(key);
 		c.liveBy.set(key, now);
 		if (!c.epoch) c.epoch = now;
@@ -2048,7 +2084,10 @@
 		const key = c.sel || ALL;
 		c.playingBy = c.playingBy || new Map();
 		c.liveBy = c.liveBy || new Map();
-		if (key === ALL) (c.playingBy.clear(), c.liveBy.clear());
+		if (key === ALL) {
+			c.playingBy.clear();
+			c.liveBy.clear();
+		}
 		c.liveBy.delete(key);
 		c.playingBy.set(key, { pat: clean, rnd: seeded(clean.seed), t0: Date.now(), until: clean.dur ? Date.now() + clean.dur : 0 });
 		rcSend(member, { t: "pat", p: isSelf(member) ? clean : netPattern(clean), ...(key !== ALL ? { toy: key } : {}) });
@@ -2066,7 +2105,10 @@
 		const key = c.sel || ALL;
 		c.playingBy = c.playingBy || new Map();
 		c.liveBy = c.liveBy || new Map();
-		if (key === ALL) (c.playingBy.clear(), c.liveBy.clear());
+		if (key === ALL) {
+			c.playingBy.clear();
+			c.liveBy.clear();
+		}
 		c.playingBy.delete(key);
 		c.liveBy.delete(key);
 		return key;
@@ -2157,16 +2199,33 @@
 		let changed = false;
 		for (const [m, g] of [...grants]) {
 			if (isSelf(m)) continue;
-			if (!charOf(m)) (loseContact(m), grants.delete(m), (changed = true));
-			else if (g.until && now > g.until) (revokeControl(m, "Time's up"), (changed = true));
+			if (!charOf(m)) {
+				loseContact(m);
+				grants.delete(m);
+				changed = true;
+			}
+			else if (g.until && now > g.until) {
+				revokeControl(m, "Time's up");
+				changed = true;
+			}
 			// The game decides who may use items on you: if that changes mid-session (you blacklist them, change your
 			// item permissions), control ends at once rather than at the next request
-			else if (!gameAllows(charOf(m))) (revokeControl(m, "The game no longer lets you use items on them"), (changed = true));
+			else if (!gameAllows(charOf(m))) {
+				revokeControl(m, "The game no longer lets you use items on them");
+				changed = true;
+			}
 		}
 		for (const [m, c] of [...controlling]) {
 			if (isSelf(m)) continue;
-			if (!charOf(m)) (controlling.delete(m), (changed = true));
-			else if (c.state === "granted" && c.until && now > c.until) (outDone(m, c), controlling.set(m, { state: "revoked", reason: "Time's up", at: now }), (changed = true));
+			if (!charOf(m)) {
+				controlling.delete(m);
+				changed = true;
+			}
+			else if (c.state === "granted" && c.until && now > c.until) {
+				outDone(m, c);
+				controlling.set(m, { state: "revoked", reason: "Time's up", at: now });
+				changed = true;
+			}
 		}
 		// Heartbeat out to everyone whose toy we control
 		for (const [m, c] of controlling) if (c.state === "granted" && !isSelf(m) && now - (lastSentTo.get(m) || 0) >= HB_EVERY) rcSend(m, { t: "hb" });
@@ -2192,8 +2251,14 @@
 				changed = true;
 			}
 		}
-		for (const m of [...peers.keys()]) if (!charOf(m)) (peers.delete(m), (changed = true));
-		for (const m of [...asks.keys()]) if (!charOf(m)) (answerAsk(m, "decline", "Left"), (changed = true));
+		for (const m of [...peers.keys()]) if (!charOf(m)) {
+			peers.delete(m);
+			changed = true;
+		}
+		for (const m of [...asks.keys()]) if (!charOf(m)) {
+			answerAsk(m, "decline", "Left");
+			changed = true;
+		}
 		rcSessionTick(now);
 		// Countdowns and live bars update in place (ui.tick); only re-render when something changed
 		if (changed) ui.renderSoon();
@@ -2264,7 +2329,9 @@
 			try {
 				const [ev, d] = args;
 				if (ev === "ChatRoomChat" && d && d.Type !== "Hidden" && hasSafeWord(d.Content)) setTimeout(() => (local.paused ? rcOnStop() : stopNow()));
-			} catch {}
+			} catch {
+				// not critical: carries on without it
+			}
 			return next(args);
 		});
 	}
@@ -2476,25 +2543,25 @@
 
 		// A settings section that folds away; which ones are open is remembered (only Connection starts open)
 		function section(out, key, title, fill) {
-			const open = local.secOpen?.[key] ?? key === "conn";
+			const isOpen = local.secOpen?.[key] ?? key === "conn";
 			out.push(
 				h(
 					"button",
 					{
-						class: `vl-sec${open ? " open" : ""}`,
+						class: `vl-sec${isOpen ? " open" : ""}`,
 						"data-sec": key,
-						"aria-expanded": open ? "true" : "false",
+						"aria-expanded": isOpen ? "true" : "false",
 						onclick: () => {
-							local.secOpen = { ...(local.secOpen || {}), [key]: !open };
+							local.secOpen = { ...(local.secOpen || {}), [key]: !isOpen };
 							saveLocal();
 							render();
 						},
 					},
-					h("span", { class: "vl-sec-a" }, open ? "▾" : "▸"),
+					h("span", { class: "vl-sec-a" }, isOpen ? "▾" : "▸"),
 					title
 				)
 			);
-			if (open) {
+			if (isOpen) {
 				const inner = [];
 				fill(inner);
 				out.push(h("div", { class: "vl-sec-body" }, inner));
@@ -2554,10 +2621,10 @@
 						it.fx.length || it.craftFx ? h("div", {}, [...it.fx.map((e) => FX_TEXT[e]), it.craftFx && `✂ crafted ${it.craftFx}`].filter(Boolean).join(" · ")) : null,
 						it.belt
 						? h(
-								"div",
-								{ title: "The belt's own record while worn: orgasms, and orgasm prompts since the last one that didn't end in one (resisted or ruined)" },
-								`📋 Belt: 💦 ${it.belt.orgasms} · held back ${it.belt.held} · ${it.belt.last ? `last orgasm ${agoText(Date.now() - it.belt.last)} ago` : it.belt.worn ? `none since it went on ${agoText(Date.now() - it.belt.worn)} ago` : "no orgasm yet"}`
-							)
+							"div",
+							{ title: "The belt's own record while worn: orgasms, and orgasm prompts since the last one that didn't end in one (resisted or ruined)" },
+							`📋 Belt: 💦 ${it.belt.orgasms} · held back ${it.belt.held} · ${it.belt.last ? `last orgasm ${agoText(Date.now() - it.belt.last)} ago` : it.belt.worn ? `none since it went on ${agoText(Date.now() - it.belt.worn)} ago` : "no orgasm yet"}`
+						)
 						: null,
 					it.lock ? h("div", { class: "hint" }, `${it.lock}${it.lockBy ? ` · by ${nameOf(it.lockBy)}` : ""}`) : null
 					)
@@ -2624,9 +2691,9 @@
 			const fresh = st && now - st.at < 2500;
 			const toysNow = (st?.toys || []).filter((t) => t.e);
 			// The wearer says a toy isn't playing any more (finished, or stopped there)
-			for (const [k, p] of [...c.playingBy]) {
+			for (const [k, pl] of [...c.playingBy]) {
 				const rows = k === ALL ? toysNow : toysNow.filter((t) => t.k === k);
-				if ((fresh && rows.length && rows.every((t) => t.m !== "pat") && now - p.t0 > 3000) || (p.until && now > p.until + 1500)) c.playingBy.delete(k);
+				if ((fresh && rows.length && rows.every((t) => t.m !== "pat") && now - pl.t0 > 3000) || (pl.until && now > pl.until + 1500)) c.playingBy.delete(k);
 			}
 			let p = c.playingBy.get(sel) || (sel !== ALL ? c.playingBy.get(ALL) : [...c.playingBy.values()][0]);
 			// A level or mode they hold (from their status)
@@ -2654,7 +2721,8 @@
 				ctx.beginPath();
 				for (let x = 0; x <= W; x++) {
 					const y = H - 2 - (patternAt(p.pat, start + (x / W) * span, p.rnd) / 100) * (H - 4);
-					x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+					if (x) ctx.lineTo(x, y);
+					else ctx.moveTo(x, y);
 				}
 				ctx.stroke();
 				const px = ((t - start) / span) * W;
@@ -2776,7 +2844,8 @@
 			const rnd = seeded(p.seed);
 			for (let x = 0; x <= W; x++) {
 				const y = H - 2 - (patternAt(p, (x / W) * span, rnd) / 100) * (H - 4);
-				x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+				if (x) ctx.lineTo(x, y);
+				else ctx.moveTo(x, y);
 			}
 			ctx.stroke();
 		}
@@ -2882,7 +2951,8 @@
 				const rnd = seeded(pat.seed);
 				for (let x = 0; x <= W; x++) {
 					const y = H - 2 - (patternAt(pat, (x / W) * span, rnd) / 100) * (H - 4);
-					x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+					if (x) ctx.lineTo(x, y);
+					else ctx.moveTo(x, y);
 				}
 				ctx.stroke();
 			};
@@ -3050,7 +3120,7 @@
 			// Who has control now
 			if ([...grants.keys()].some((m) => !isSelf(m))) {
 				out.push(h("h3", {}, "Controlling you now"));
-				for (const [m, g] of [...grants].filter(([m]) => !isSelf(m)))
+				for (const [m, g] of [...grants].filter(([who]) => !isSelf(who)))
 					out.push(
 						h(
 							"div",
@@ -3311,13 +3381,13 @@
 			const rc = remoteCtl;
 			if (!rc) return;
 			const driven = remoteToys()
-				.map((t) => [t, laneFor(t)])
+				.map((toy) => [toy, laneFor(toy)])
 				.filter(([, l]) => l);
 			const lines = el.querySelector(".vl-now-toys");
-			const txt = driven.length ? driven.map(([t, l]) => `${t.display} ${Math.round(t.value * 100)}% ${laneText(l, now)}`).join(" · ") : "Waiting for them…";
+			const txt = driven.length ? driven.map(([toy, l]) => `${toy.display} ${Math.round(toy.value * 100)}% ${laneText(l, now)}`).join(" · ") : "Waiting for them…";
 			if (lines.textContent !== txt) lines.textContent = txt;
 			// The first pattern being played, drawn with its playhead (exactly what your toy is doing)
-			const lane = driven.find(([t, l]) => l.pat && laneDrives(t, l))?.[1];
+			const lane = driven.find(([toy, l]) => l.pat && laneDrives(toy, l))?.[1];
 			const g = el.querySelector(".vl-now-g");
 			const bar = el.querySelector(".vl-now-bar i");
 			g.style.display = lane ? "" : "none";
@@ -3336,7 +3406,8 @@
 			ctx.beginPath();
 			for (let x = 0; x <= W; x++) {
 				const y = H - 2 - (patternAt(lane.pat, start + (x / W) * span, lane.rnd) / 100) * (H - 4);
-				x ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+				if (x) ctx.lineTo(x, y);
+				else ctx.moveTo(x, y);
 			}
 			ctx.stroke();
 			const px = ((t - start) / span) * W;
@@ -3483,38 +3554,38 @@
 						h("div", { class: "row" }, h("span", { class: "nm", title: toy.motor ? `Motor ${toy.motor.n} of ${toy.motor.of} in ${toy.name}` : toy.name }, toy.display), toy.battery != null && h("span", { class: "hint", title: "Battery" }, `🔋 ${toy.battery}%`)),
 						toy.virtual ? h("div", { class: "hint" }, "Pretend toy: nothing is sent anywhere, and only you can drive it. ", h("a", { href: "#", onclick: (e) => (e.preventDefault(), setVirtual(false)) }, "Remove")) : null,
 							toy.vibes.length ? null : h("div", { class: "err" }, "This toy has no vibration motor buttplug.io can drive."),
-						h(
-							"div",
-							{ class: "row" },
-							"Follows",
 							h(
-								"select",
-								{
-									"data-id": "slot-" + toy.key,
-									onchange: (e) => {
-										if (e.target.value) settings.links[toy.key] = e.target.value;
-										else delete settings.links[toy.key];
-										saveSettings();
-										render();
+								"div",
+								{ class: "row" },
+								"Follows",
+								h(
+									"select",
+									{
+										"data-id": "slot-" + toy.key,
+										onchange: (e) => {
+											if (e.target.value) settings.links[toy.key] = e.target.value;
+											else delete settings.links[toy.key];
+											saveSettings();
+											render();
+										},
 									},
-								},
-								h("option", { value: "" }, "— nothing —"),
-								// Slots with a vibrator on first, then slots with something that doesn't vibrate, then empty ones
-								(() => {
-									const rows = slots.map((s) => ({ ...s, w: wornIn(s.name) }));
-									const opt = (s, text) => h("option", { value: s.name, selected: s.name === slot }, text);
-									const groups = [
-										["Wearing a vibrator", rows.filter((r) => r.w.vibrates), (r) => `〰 ${r.label}: ${r.w.name}`],
-										["Worn, doesn't vibrate", rows.filter((r) => r.w.item && !r.w.vibrates), (r) => `${r.label}: ${r.w.name}`],
-										["Nothing worn", rows.filter((r) => !r.w.item), (r) => `${r.label} (empty)`],
-									];
-									return groups.filter(([, list]) => list.length).map(([label, list, text]) => h("optgroup", { label }, list.map((r) => opt(r, text(r)))));
-								})()
+									h("option", { value: "" }, "— nothing —"),
+									// Slots with a vibrator on first, then slots with something that doesn't vibrate, then empty ones
+									(() => {
+										const rows = slots.map((s) => ({ ...s, w: wornIn(s.name) }));
+										const opt = (s, text) => h("option", { value: s.name, selected: s.name === slot }, text);
+										const groups = [
+											["Wearing a vibrator", rows.filter((r) => r.w.vibrates), (r) => `〰 ${r.label}: ${r.w.name}`],
+											["Worn, doesn't vibrate", rows.filter((r) => r.w.item && !r.w.vibrates), (r) => `${r.label}: ${r.w.name}`],
+											["Nothing worn", rows.filter((r) => !r.w.item), (r) => `${r.label} (empty)`],
+										];
+										return groups.filter(([, list]) => list.length).map(([label, list, text]) => h("optgroup", { label }, list.map((r) => opt(r, text(r)))));
+									})()
+								),
+								h("button", { title: "Vibrate at 30% for 1.5 seconds", disabled: local.paused, onclick: () => (toy.testUntil = Date.now() + 1500) }, "Test")
 							),
-							h("button", { title: "Vibrate at 30% for 1.5 seconds", disabled: local.paused, onclick: () => (toy.testUntil = Date.now() + 1500) }, "Test")
-						),
-						h("div", { class: "vl-wave", title: "Strength over the last 15 seconds (⚙ → Scale charts to max)" }, h("canvas", { "data-wave": toy.id, height: 34 }), h("span", { "data-pct": toy.id, class: "vl-wave-pct" }, "")),
-						slot && h("div", { class: "hint", "data-slot": toy.id }, slotText(st))
+							h("div", { class: "vl-wave", title: "Strength over the last 15 seconds (⚙ → Scale charts to max)" }, h("canvas", { "data-wave": toy.id, height: 34 }), h("span", { "data-pct": toy.id, class: "vl-wave-pct" }, "")),
+							slot && h("div", { class: "hint", "data-slot": toy.id }, slotText(st))
 					)
 				);
 			}
@@ -3673,7 +3744,10 @@
 						"data-id": `md-${key}-${md}`,
 						onchange: (e) => {
 							cur[key] = Math.round(Math.min(100, Math.max(0, +e.target.value || 0)));
-							if (cur.min > cur.max) key === "min" ? (cur.max = cur.min) : (cur.min = cur.max);
+							if (cur.min > cur.max) {
+								if (key === "min") cur.max = cur.min;
+								else cur.min = cur.max;
+							}
 							settings.modes[md] = { ...cur };
 							save();
 						},
@@ -3697,19 +3771,19 @@
 						isGame
 							? null
 							: h(
-									"div",
-									{ class: "row" },
-									h("span", { class: "vl-ind" }, ""),
-									pctIn("min", "Lowest strength (%)"),
-									"–",
-									pctIn("max", "Highest strength (%)"),
-									"%",
-									h(
-										"select",
-										{ "data-id": `md-speed-${md}`, title: "How long one cycle takes", onchange: (e) => ((cur.period = Number(e.target.value)), (settings.modes[md] = { ...cur }), save()) },
-										speeds.map(([ms, t]) => h("option", { value: ms, selected: cur.period === ms }, t))
-									)
+								"div",
+								{ class: "row" },
+								h("span", { class: "vl-ind" }, ""),
+								pctIn("min", "Lowest strength (%)"),
+								"–",
+								pctIn("max", "Highest strength (%)"),
+								"%",
+								h(
+									"select",
+									{ "data-id": `md-speed-${md}`, title: "How long one cycle takes", onchange: (e) => ((cur.period = Number(e.target.value)), (settings.modes[md] = { ...cur }), save()) },
+									speeds.map(([ms, t]) => h("option", { value: ms, selected: cur.period === ms }, t))
 								)
+							)
 					)
 				);
 			}
@@ -3848,7 +3922,7 @@
 		let wornCheckAt = 0;
 		let inspectCheckAt = 0;
 		let lastInspect = "";
-		function tick() {
+		function tickPanel() {
 			if (!panel) return;
 			const vis = loggedIn();
 			if (vis !== lastVisible) {
@@ -3929,7 +4003,10 @@
 			const dpr = window.devicePixelRatio || 1;
 			const cw = Math.max(40, Math.round(cv.clientWidth * dpr));
 			const ch = Math.round(34 * dpr);
-			if (cv.width !== cw || cv.height !== ch) (cv.width = cw), (cv.height = ch);
+			if (cv.width !== cw || cv.height !== ch) {
+				cv.width = cw;
+				cv.height = ch;
+			}
 			const ctx = cv.getContext("2d");
 			const W = cv.width;
 			const H = cv.height;
@@ -4019,7 +4096,7 @@
 			}
 		}
 
-		return { mount, unmount, open, render, renderSoon, tick, toast, onKey };
+		return { mount, unmount, open, render, renderSoon, tick: tickPanel, toast, onKey };
 	})();
 
 	// ---------- chat commands ----------
@@ -4062,10 +4139,10 @@
 				return say("Asking the other game tab to hand over Intiface…");
 			case "scan":
 				if (conn !== "connected") {
-					connect().then(() => conn === "connected" && !toys.size && startScan());
+					connect().then(() => conn === "connected" && !toys.size && startScan()).catch((err) => console.warn(TAG, err));
 					return say("Connecting to Intiface, then looking for toys… (turn the toy on)");
 				}
-				startScan();
+				startScan().catch((err) => console.warn(TAG, err));
 				return say("Looking for toys… (turn the toy on)");
 			case "status":
 				return say(statusText());
@@ -4094,7 +4171,7 @@
 			case "preset":
 			case "presets":
 			case "load": {
-				if (!arg) return say(settings.presets.length ? `Presets: ${settings.presets.map((p) => p.name).join(", ")}. /vibe preset <name> loads one.` : "No presets yet. /vibe save <name> saves the current setup.");
+				if (!arg) return say(settings.presets.length ? `Presets: ${settings.presets.map((pr) => pr.name).join(", ")}. /vibe preset <name> loads one.` : "No presets yet. /vibe save <name> saves the current setup.");
 				const p = findPreset(arg);
 				if (!p) return say(`No preset "${arg}". Presets: ${settings.presets.map((x) => x.name).join(", ") || "none"}`);
 				return say(`Loaded "${p.name}": ${loadPreset(p)}`);
@@ -4141,7 +4218,7 @@
 			settingsLoadedFor = member;
 			if (member) {
 				loadSettings();
-				if (settings.autoConnect && conn !== "connected") connect();
+				if (settings.autoConnect && conn !== "connected") connect().catch((err) => console.warn(TAG, err));
 			} else {
 				// logged out: toys go to 0 through the engine; drop the connection
 				disconnect();
@@ -4150,7 +4227,7 @@
 		}
 		if (Date.now() - batteryAt > 5 * 60_000) {
 			batteryAt = Date.now();
-			for (const t of toys.values()) readBattery(t);
+			for (const t of toys.values()) readBattery(t).catch((err) => console.warn(TAG, err));
 		}
 	}, 500);
 
@@ -4158,6 +4235,10 @@
 	// every ramp into steps while you're on another tab. A worker's timers aren't throttled, so the worker sets the
 	// pace and posts to this tab, whose message handling isn't throttled either. If a worker can't start (blocked by
 	// the page's security policy), plain setInterval is the fallback.
+	/**
+	 * @param {() => void} fn
+	 * @param {number} ms
+	 */
 	function startTicker(fn, ms) {
 		let worker = null;
 		let url = null;
@@ -4247,14 +4328,18 @@
 			}
 			try {
 				mod?.unload();
-			} catch {}
+			} catch {
+				// already done or gone: nothing to undo
+			}
 			try {
 				const i = typeof ChatRoomMessageHandlers !== "undefined" ? ChatRoomMessageHandlers.indexOf(chatFilter) : -1;
 				if (i >= 0) ChatRoomMessageHandlers.splice(i, 1);
-			} catch {}
+			} catch {
+				// already done or gone: nothing to undo
+			}
 			delete window.VibeLink;
 		},
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded`);
-})();
+})().catch((err) => console.error("[VibeLink]", err));

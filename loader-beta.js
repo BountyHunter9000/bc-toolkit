@@ -9,7 +9,7 @@
 (() => {
 	"use strict";
 	const BETA = true; // loader.js: false. Test versions switched on, and the dock's newest test version
-	const FALLBACK = "tk-v1.3.0";
+	const FALLBACK = "tk-v1.3.1";
 	const LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
 	const dockUrl = (tag) => `https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@${tag}/bc-dock/bc-dock.js`;
 	if (window.BCToolkit && window.BCToolkit.loader === true) return;

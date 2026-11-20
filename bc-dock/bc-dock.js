@@ -6,9 +6,10 @@
 // and the dock is then also the loader: ⚙ → Add-ons picks which add-ons run and at which version. The first copy to
 // run creates window.BCDock; later copies of the same or an older version leave it alone, and a newer version takes
 // over, keeping the panels already added. See README.md.
+"use strict";
+
 (() => {
-	"use strict";
-	const VERSION = 18; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail)
+	const VERSION = 19; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail); 19: steps aside for the game's toast notices (R134 beeps), code cleanup
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -18,7 +19,7 @@
 	const MIN_W = 220;
 	const TAB = 44; // tab size in px
 
-	const el = (tag, attrs = {}, ...kids) => {
+	const el = (tag, attrs = {}, ...children) => {
 		const e = document.createElement(tag);
 		for (const [k, v] of Object.entries(attrs)) {
 			if (v == null || v === false) continue;
@@ -26,7 +27,7 @@
 			else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
 			else e.setAttribute(k, v === true ? "" : v);
 		}
-		for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : String(kid));
+		for (const kid of children.flat()) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : String(kid));
 		return e;
 	};
 	// The same skipping for replaceChildren(), which would write a left-out null as the text "null"
@@ -42,7 +43,9 @@
 		for (const [id, v] of Object.entries(s?.float && typeof s.float === "object" ? s.float : {}))
 			if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) fl[id] = { x: v.x, y: v.y, open: !!v.open };
 		state.float = fl;
-	} catch {}
+	} catch {
+		// missing or unreadable: the defaults stay
+	}
 	const SIDES = ["left", "right", "top", "bottom"];
 	if (!SIDES.includes(state.side)) state.side = "left";
 	const horizontal = () => state.side === "top" || state.side === "bottom";
@@ -100,7 +103,9 @@
 	const save = () => {
 		try {
 			localStorage.setItem(STORE, JSON.stringify(state));
-		} catch {}
+		} catch {
+			// storage full or blocked: carries on without saving
+		}
 	};
 
 	// ---------- browser tab title ----------
@@ -145,7 +150,10 @@
 	let titleWho = null;
 	const titleTimer = setInterval(() => {
 		const who = `${titleOn()}|${titleName()}`;
-		if (who !== titleWho) (titleWho = who), applyTitle();
+		if (who !== titleWho) {
+			titleWho = who;
+			applyTitle();
+		}
 	}, 2000);
 	function titleStop() {
 		titleObserver.disconnect();
@@ -311,23 +319,23 @@
 			),
 			el("div", { class: "sides" }, SIDES.map((sd) => el("button", { onclick: () => setSide(sd), style: state.side === sd ? "background:var(--bcd-line)" : "" }, sd[0].toUpperCase() + sd.slice(1)))),
 			el("div", { class: "hint" }, "Drag a tab to move the rail along or to another edge."),
-				el("h4", {}, "Panel windows"),
+			el("h4", {}, "Panel windows"),
+			el(
+				"label",
+				{ class: "row", title: "Panels always open beside the rail, and their title bars can't be dragged away" },
+				el("input", { type: "checkbox", checked: !!state.lockDock, onchange: (e) => setLockDock(e.target.checked) }),
+				"Keep panels on the rail"
+			),
+			el(
+				"div",
+				{ class: "row" },
 				el(
-					"label",
-					{ class: "row", title: "Panels always open beside the rail, and their title bars can't be dragged away" },
-					el("input", { type: "checkbox", checked: !!state.lockDock, onchange: (e) => setLockDock(e.target.checked) }),
-					"Keep panels on the rail"
-				),
-				el(
-					"div",
-					{ class: "row" },
-					el(
-						"button",
-						{ disabled: !Object.keys(state.float).length, title: "Every floating window goes back beside the rail, and the places they were are forgotten", onclick: () => dockAll() },
+					"button",
+					{ disabled: !Object.keys(state.float).length, title: "Every floating window goes back beside the rail, and the places they were are forgotten", onclick: () => dockAll() },
 						Object.keys(state.float).length ? `Put all back on the rail (${Object.keys(state.float).length})` : "Put all back on the rail"
-					)
-				),
-				el("div", { class: "hint" }, state.lockDock ? "Turn this off to drag a panel's title bar away and float it anywhere." : "Drag a panel's title bar away to float it anywhere; ⇤ in its title bar puts it back."),
+				)
+			),
+			el("div", { class: "hint" }, state.lockDock ? "Turn this off to drag a panel's title bar away and float it anywhere." : "Drag a panel's title bar away to float it anywhere; ⇤ in its title bar puts it back."),
 			...themeSection(),
 			el("h4", {}, "Browser tab"),
 			el(
@@ -445,8 +453,14 @@
 		p.setSummary = (t) => {
 			p.sum = t == null ? "" : String(t);
 			updateTip(p);
-			if (active === p.spec.id && flySum.textContent !== p.sum) (flySum.textContent = p.sum), (flySum.title = p.sum);
-			if (p.win && p.win.sum.textContent !== p.sum) (p.win.sum.textContent = p.sum), (p.win.sum.title = p.sum);
+			if (active === p.spec.id && flySum.textContent !== p.sum) {
+				flySum.textContent = p.sum;
+				flySum.title = p.sum;
+			}
+			if (p.win && p.win.sum.textContent !== p.sum) {
+				p.win.sum.textContent = p.sum;
+				p.win.sum.title = p.sum;
+			}
 		};
 		p.setBadge = (b) => {
 			b = b == null || b === 0 || b === "" ? null : String(b);
@@ -507,7 +521,9 @@
 			let moved = false;
 			try {
 				p.tab.setPointerCapture(e.pointerId);
-			} catch {}
+			} catch {
+				// already done or gone: nothing to undo
+			}
 			const move = (ev) => {
 				if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
 				moved = true;
@@ -608,19 +624,19 @@
 
 	function place() {
 		// With the BC Toolkit loader, ⚙ stays reachable even before any add-on shows a tab (its menus switch them on)
-		const any = [...panels.values()].some((p) => p.visible) || (tk.started && tkOn());
+		const any = [...panels.values()].some((q) => q.visible) || (tk.started && tkOn());
 		rail.className = `${state.side}${any ? "" : " empty"}`;
 		if (!any && active === CFG) return setActive(null);
 		const rr = rail.getBoundingClientRect();
 		if (horizontal()) {
-			const w = rr.width || TAB;
+			const rw = rr.width || TAB;
 			const x = state.x == null ? 90 : state.x;
-			rail.style.left = `${Math.max(0, Math.min(innerWidth - w, x))}px`;
+			rail.style.left = `${Math.max(0, Math.min(innerWidth - rw, x))}px`;
 			rail.style.top = "";
 		} else {
-			const h = rr.height || TAB;
-			const y = state.y == null ? innerHeight - h - 90 : state.y;
-			rail.style.top = `${Math.max(0, Math.min(innerHeight - h, y))}px`;
+			const rh = rr.height || TAB;
+			const y = state.y == null ? innerHeight - rh - 90 : state.y;
+			rail.style.top = `${Math.max(0, Math.min(innerHeight - rh, y))}px`;
 			rail.style.left = "";
 		}
 		for (const fp of panels.values()) if (fp.win) placeFloat(fp);
@@ -833,13 +849,13 @@
 	}
 
 	// Back on the rail; an open window opens there instead
-	function dockPanel(id, reopen = true) {
+	function dockPanel(id, andOpen = true) {
 		const p = panels.get(id);
 		const was = !!p?.win;
 		if (p) dropWin(p);
 		delete state.float[id];
 		save();
-		if (p && was && reopen) setActive(id);
+		if (p && was && andOpen) setActive(id);
 		else if (p && was) notifyToggle(p, false);
 	}
 
@@ -879,31 +895,38 @@
 	ro.observe(rail);
 
 	// ---------- stepping aside for the game's own popups ----------
-	// The game draws a beep across the top strip of its canvas for a few seconds (ServerBeep), and its
-	// screens put their notices there too. While one is up, any part of the dock over that strip fades
-	// out and lets clicks through, so the popup can be read and clicked; it comes back when it's gone.
-	const POPUP_BAND = 0.07; // top 7% of the canvas (the beep box is 50 of 1000 game units tall)
-	function gamePopupUp() {
+	// While the game shows a notice, any part of the dock over it fades out and lets clicks through, so the notice can
+	// be read and clicked; it comes back when the notice is gone. R134 shows beeps and other notices as toasts (page
+	// elements in .toast-container, top left); older versions drew a beep across the top strip of the canvas
+	// (ServerBeep), which is still checked for them.
+	const POPUP_BAND = 0.07; // top 7% of the canvas (the old beep box is 50 of 1000 game units tall)
+	/** @returns {{ top: number, bottom: number, left: number, right: number }[]} */
+	function popupRects() {
+		const out = [...document.querySelectorAll(".toast-container .toast")].map((t) => t.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
 		try {
-			return typeof ServerBeep !== "undefined" && ServerBeep && ServerBeep.Timer > Date.now() && !!ServerBeep.Message;
+			const beep = /** @type {any} */ (window).ServerBeep;
+			if (beep && beep.Timer > Date.now() && beep.Message) {
+				const c = document.getElementById("MainCanvas")?.getBoundingClientRect();
+				if (c && c.width) out.push({ top: c.top, bottom: c.top + c.height * POPUP_BAND, left: c.left, right: c.right });
+			}
 		} catch {
-			return false;
+			// not this game version: only the toasts count
 		}
+		return out;
 	}
+	/**
+	 * @param {DOMRect} r
+	 * @param {{ top: number, bottom: number, left: number, right: number }} band
+	 */
 	function overlapsBand(r, band) {
 		return r.width > 0 && r.top < band.bottom && r.bottom > band.top && r.left < band.right && r.right > band.left;
 	}
 	const yieldTimer = setInterval(() => {
 		let yieldNow = false;
-		if (gamePopupUp()) {
-			const c = document.getElementById("MainCanvas")?.getBoundingClientRect();
-			if (c && c.width) {
-				const band = { top: c.top, bottom: c.top + c.height * POPUP_BAND, left: c.left, right: c.right };
-				yieldNow =
-					overlapsBand(rail.getBoundingClientRect(), band) ||
-					(!fly.classList.contains("closed") && overlapsBand(fly.getBoundingClientRect(), band)) ||
-					[...panels.values()].some((fp) => fp.win && overlapsBand(fp.win.el.getBoundingClientRect(), band));
-			}
+		const popups = popupRects();
+		if (popups.length) {
+			const mine = [rail, ...(fly.classList.contains("closed") ? [] : [fly]), ...[...panels.values()].filter((fp) => fp.win).map((fp) => fp.win.el)].map((n) => n.getBoundingClientRect());
+			yieldNow = mine.some((r) => popups.some((band) => overlapsBand(r, band)));
 		}
 		if (yieldNow !== document.documentElement.classList.contains("bcd-yield")) document.documentElement.classList.toggle("bcd-yield", yieldNow);
 	}, 250);
@@ -919,8 +942,8 @@
 		const cur = () => window.BCDock?._panels?.get(id);
 		const call =
 			(m) =>
-			(...a) =>
-				cur()?.[m]?.(...a);
+				(...a) =>
+					cur()?.[m]?.(...a);
 		return {
 			id,
 			get body() {
@@ -1016,13 +1039,13 @@
 		return new Promise((resolve, reject) => {
 			const open = indexedDB.open("BCDock", 1);
 			open.onupgradeneeded = () => open.result.createObjectStore("kv");
-			open.onerror = () => reject(open.error);
+			open.onerror = () => reject(open.error ?? new Error("IndexedDB open failed"));
 			open.onsuccess = () => {
 				const db = open.result;
 				const tx = db.transaction("kv", mode);
 				const req = fn(tx.objectStore("kv"));
 				tx.oncomplete = () => (db.close(), resolve(req?.result));
-				tx.onerror = () => (db.close(), reject(tx.error));
+				tx.onerror = () => (db.close(), reject(tx.error ?? new Error("IndexedDB write failed")));
 			};
 		});
 	}
@@ -1051,7 +1074,9 @@
 		for (const k of DEV_ORDER) {
 			try {
 				out[k] = (await devFile(root, k)).lastModified;
-			} catch {}
+			} catch {
+				// not critical: carries on without it
+			}
 		}
 		return out;
 	}
@@ -1149,7 +1174,7 @@
 				const times = await devTimes(root);
 				if (!dev.known) return void (dev.known = times);
 				const changed = DEV_ORDER.filter((k) => times[k] !== dev.known[k]);
-				if (changed.length) devReload(changed, false);
+				if (changed.length) devReload(changed, false).catch((err) => console.warn("[BCDock]", err));
 			}, 1000);
 		if (active === CFG) renderCfg();
 	}
@@ -1225,8 +1250,8 @@
 	// repository's main branch; each add-on's file comes from its release tag through jsDelivr, exactly like the
 	// separate scripts' @require lines, so a version never changes under you. Latest moves to a new release when the
 	// game loads, or on "Check for updates". In between, the list is looked at again every 24 hours; a newer release
-// isn't swapped in mid-session (it could cut off a toy session or a half-typed note), but ⚙ gets a green dot and the
-// add-on's line says it's there, until "Update now" or the next reload. Turned on by this line in that script's body:
+	// isn't swapped in mid-session (it could cut off a toy session or a half-typed note), but ⚙ gets a green dot and the
+	// add-on's line says it's there, until "Update now" or the next reload. Turned on by this line in that script's body:
 	//   window.BCToolkit = { loader: true };
 	// Without it (the separate add-on scripts) none of this runs. listUrl and fileBase ("…/{tag}/") in the same object
 	// point it somewhere else, and checkMs / tickMs change the 24 h and 10 min, for testing.
@@ -1289,7 +1314,10 @@
 		// Offline or blocked: the list from last time still says what to load
 		if (!tk.list) {
 			const cached = tkClean(state.tkList);
-			if (cached) (tk.list = cached), (tk.listAt = state.tkList.at || 0);
+			if (cached) {
+				tk.list = cached;
+				tk.listAt = state.tkList.at || 0;
+			}
 		}
 		return false;
 	}
@@ -1407,7 +1435,7 @@
 		state.tk = { ...(state.tk || {}), [id]: pick };
 		save();
 		const a = tk.list?.addons.find((x) => x.id === id);
-		if (a && tk.started) tkApply(a);
+		if (a && tk.started) tkApply(a).catch((err) => console.warn("[BCDock]", err));
 		tkRender();
 	}
 
@@ -1454,7 +1482,7 @@
 		const loop = () => {
 			tkPollTimer = setTimeout(() => {
 				if (window.BCDock !== api) return;
-				tkPoll().finally(loop);
+				tkPoll().finally(loop).catch((err) => console.warn("[BCDock]", err));
 			}, tk.started ? tkTick() : 5000);
 		};
 		loop();
@@ -1630,7 +1658,7 @@
 			if (typeof DrawButton === "function") DrawButton(...EXIT, "", "White", "Icons/Exit.png", "Back to Extensions");
 		},
 		click() {
-			if (typeof MouseIn === "function" && MouseIn(...EXIT) && typeof PreferenceSubscreenExtensionsClear === "function") PreferenceSubscreenExtensionsClear();
+			if (typeof MouseIn === "function" && MouseIn(...EXIT) && typeof PreferenceSubscreenExtensionsClear === "function") PreferenceSubscreenExtensionsClear().catch((err) => console.warn("[BCDock]", err));
 		},
 		exit() {
 			return true;

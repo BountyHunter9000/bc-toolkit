@@ -3,11 +3,12 @@
 // Quick Actions for Bondage Club
 // A small floating bar in chat rooms: pick a target, then fire favourite or recent activities
 // with one click (or Alt+1..9) instead of going through the character dialog each time.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
+	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.5", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
@@ -62,7 +63,9 @@
 		let txt = "";
 		try {
 			txt = ActivityDictionaryText(`Activity${name}`);
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		if (txt && !txt.startsWith("MISSING")) return txt;
 		// Add-on activities (LSCG_Nuzzle, ...) often lack dictionary text; make the internal name readable
 		return name.replace(/^[A-Za-z]+_/, "").replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -72,7 +75,9 @@
 		try {
 			const g = AssetGroupGet(target?.AssetFamily || "Female3DCG", group);
 			if (g?.Description) return g.Description;
-		} catch {}
+		} catch {
+			// not available in this game or browser: the fallback is used
+		}
 		return group.replace(/^Item/, "");
 	}
 
@@ -297,25 +302,25 @@
 			const hotkey = isFav ? favHotkey(a) : 0;
 			const dragHandlers = isFav
 				? {
-						draggable: "true",
-						ondragstart: (e) => {
-							dragging = favIndex;
-							e.dataTransfer.effectAllowed = "move";
-							e.dataTransfer.setData("text/plain", String(favIndex));
-						},
-						ondragend: () => (dragging = null),
-						ondragover: (e) => {
-							if (dragging == null || dragging === favIndex) return;
-							e.preventDefault();
-							e.currentTarget.classList.add("drop");
-						},
-						ondragleave: (e) => e.currentTarget.classList.remove("drop"),
-						ondrop: (e) => {
-							e.preventDefault();
-							moveFavorite(dragging, favIndex);
-							dragging = null;
-						},
-					}
+					draggable: "true",
+					ondragstart: (e) => {
+						dragging = favIndex;
+						e.dataTransfer.effectAllowed = "move";
+						e.dataTransfer.setData("text/plain", String(favIndex));
+					},
+					ondragend: () => (dragging = null),
+					ondragover: (e) => {
+						if (dragging == null || dragging === favIndex) return;
+						e.preventDefault();
+						e.currentTarget.classList.add("drop");
+					},
+					ondragleave: (e) => e.currentTarget.classList.remove("drop"),
+					ondrop: (e) => {
+						e.preventDefault();
+						moveFavorite(dragging, favIndex);
+						dragging = null;
+					},
+				}
 				: {};
 			return h(
 				"button",
@@ -403,13 +408,13 @@
 			if (!t) return null;
 			if (!t.IsPlayer() && !ServerChatRoomGetAllowItem(Player, t)) return h("div", { class: "qa-lbl" }, `${t.Name} doesn't allow you to interact.`);
 			const groups = AssetGroup.filter((g) => g.Category === "Item" && g.Family === t.AssetFamily);
-			const available = groups.map((g) => [g, ActivityAllowedForGroup(t, g.Name).filter((o) => !o.Blocked)]).filter(([, list]) => list.length);
+			const available = groups.map((g) => [g, ActivityAllowedForGroup(t, g.Name).filter((o) => !o.Blocked)]).filter(([, acts]) => acts.length);
 			if (!available.length) return h("div", { class: "qa-lbl" }, "No activities possible right now.");
 			if (!available.some(([g]) => g.Name === pickerGroup)) pickerGroup = available[0][0].Name;
 			const select = h(
 				"select",
 				{ onchange: (e) => ((pickerGroup = e.target.value), render()) },
-				available.map(([g, list]) => h("option", { value: g.Name, selected: g.Name === pickerGroup }, `${g.Description || g.Name} (${list.length})`))
+				available.map(([g, acts]) => h("option", { value: g.Name, selected: g.Name === pickerGroup }, `${g.Description || g.Name} (${acts.length})`))
 			);
 			const list = available.find(([g]) => g.Name === pickerGroup)[1];
 			return h(
@@ -467,7 +472,7 @@
 		ui.tick();
 	}, 400);
 	// Restrictions change as items go on and off; re-check which buttons are possible
-	const refreshTimer = setInterval(() => ui.refreshSoon(), 3000);
+	const roomTimer = setInterval(() => ui.refreshSoon(), 3000);
 	window.addEventListener("keydown", ui.onKey, true);
 
 	window.QuickActions = {
@@ -476,7 +481,7 @@
 		run: (action, target = Player) => runAction(action, target),
 		unload() {
 			clearInterval(tickTimer);
-			clearInterval(refreshTimer);
+			clearInterval(roomTimer);
 			window.removeEventListener("keydown", ui.onKey, true);
 			ui.unmount();
 			mod.unload();
@@ -485,4 +490,4 @@
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded`);
-})();
+})().catch((err) => console.error("[QuickActions]", err));

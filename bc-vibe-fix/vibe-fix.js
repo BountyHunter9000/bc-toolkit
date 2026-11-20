@@ -17,11 +17,12 @@
 //    first line when that's empty, before it reaches the unlock. The fix sets it for a lock pick that ends (won or
 //    lost, not interrupted) and clears it again afterwards, so the game's own code unlocks the item, posts the usual
 //    "picked the lock" message, adds the lock-picking skill and goes back to the item list.
+"use strict";
+
 (async () => {
-	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Game Fixes", version: "0.2.0", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
+	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Game Fixes", version: "0.2.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
 	const TAG = "[GameFixes]";
 
 	// Re-running the script (dev reload) replaces the previous instance
@@ -83,7 +84,9 @@
 			if (set)
 				try {
 					if (DialogStruggleAction === "ActionPick") DialogStruggleAction = null;
-				} catch {}
+				} catch {
+					// already done or gone: nothing to undo
+				}
 		}
 	});
 
@@ -98,4 +101,4 @@
 	};
 
 	console.log(TAG, `v${MOD_INFO.version} loaded${typeof GameVersion === "string" ? ` (game ${GameVersion})` : ""}`);
-})();
+})().catch((err) => console.error("[GameFixes]", err));
