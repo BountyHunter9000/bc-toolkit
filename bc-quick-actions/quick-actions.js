@@ -6,7 +6,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "QuickActions", fullName: "Quick Actions", version: "0.5.2" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
@@ -191,7 +192,7 @@
 
 		function mount() {
 			document.head.append(h("style", { id: "qa-style" }, CSS));
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader), so there's no bar");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no bar");
 			panel = BCDock.add({ id: "quick-actions", title: "Quick Actions", icon: "⚡", order: 20, version: MOD_INFO.version, width: 190, minWidth: 150, maxWidth: 240, alignStart: true, open: true, visible: false, onToggle: () => render() });
 			bar = panel.body;
 			bar.id = "qa-body";
