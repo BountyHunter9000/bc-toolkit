@@ -12,7 +12,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "VibeFix", fullName: "Vibe Fix", version: "0.1.0" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Vibe Fix", version: "0.1.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
 	const TAG = "[VibeFix]";
 
 	// Re-running the script (dev reload) replaces the previous instance
