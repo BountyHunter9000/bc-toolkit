@@ -8,7 +8,7 @@
 // over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 16; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions)
+	const VERSION = 17; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -29,6 +29,8 @@
 		for (const kid of kids.flat()) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : String(kid));
 		return e;
 	};
+	// The same skipping for replaceChildren(), which would write a left-out null as the text "null"
+	const kids = (...xs) => xs.flat().filter((x) => x != null && x !== false);
 
 	// ---------- saved state (this browser only) ----------
 	let state = { side: "left", y: null, x: null, opacity: 0.94, widths: {}, active: null, theme: { preset: "amethyst" } };
@@ -267,7 +269,7 @@
 	function renderCfg() {
 		const pct = Math.round(state.opacity * 100);
 		const out = el("span", {}, `${pct}%`);
-		cfgBody.replaceChildren(
+		cfgBody.replaceChildren(...kids(
 			// With the BC Toolkit loader, the add-on menus come first
 			...(tkOn() ? [el("h4", { style: "margin-top:0" }, "Add-ons"), ...tkSection(), el("h4", {}, "Dock")] : []),
 			el(
@@ -318,7 +320,7 @@
 			...(tkOn() ? [] : [el("h4", {}, "Add-ons")]),
 			tkOn() ? null : versList(),
 			...(devOn() ? devSection() : [])
-		);
+		));
 	}
 
 	// The add-ons in the dock and their versions (without the BC Toolkit loader, whose menus say it instead)
@@ -1340,7 +1342,7 @@
 
 	function extRender() {
 		if (!extBox) return;
-		extBox.replaceChildren(
+		extBox.replaceChildren(...kids(
 			el("h3", {}, "BC Toolkit"),
 			el(
 				"div",
@@ -1358,7 +1360,7 @@
 				el("button", { onclick: () => setActive(CFG) }, "Open the dock's ⚙ settings"),
 				el("span", { class: "hint" }, `Dock v${VERSION}: themes, side, opacity, the name in the browser tab`)
 			)
-		);
+		));
 	}
 	function extPlace() {
 		if (extBox && typeof ElementPositionFix === "function") ElementPositionFix(extBox, 30, 500, 120, 1250, 820);

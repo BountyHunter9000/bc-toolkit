@@ -5,7 +5,7 @@
 // add-ons you have switched on (⚙ → Add-ons). Running it twice, or alongside the Tampermonkey script, does nothing more.
 (() => {
 	"use strict";
-	const DOCK = "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@tk-v1.2.0/bc-dock/bc-dock.js";
+	const DOCK = "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@tk-v1.2.1/bc-dock/bc-dock.js";
 	if (window.BCToolkit && window.BCToolkit.loader === true) return;
 	window.BCToolkit = { loader: true, beta: true };
 	// Added even when a dock is already here (from an old one-add-on script): the newer copy takes over, the same or an
