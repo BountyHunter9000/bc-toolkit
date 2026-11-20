@@ -7,7 +7,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "Quiet", fullName: "Quiet", version: "0.2.0" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
 	const TAG = "[Quiet]";
 	const KEY = (m) => `Quiet.${m}`;
 
@@ -95,7 +96,7 @@
 		}
 		function render() {
 			if (!window.BCDock) {
-				if (!warned) (warned = true), console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader), so there's no button. /quiet still works.");
+				if (!warned) (warned = true), console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no button. /quiet still works.");
 				return;
 			}
 			if (!tab || shownIcon !== icon()) {
