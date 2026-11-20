@@ -10,7 +10,7 @@
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.5", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -4801,14 +4801,22 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// Each chip links to the add-on's page (or a GitHub search); "About these add-ons" lists what each one does
 		function addonChips(rec) {
-			let entries; // [{ name, label, note, unknown }]
+			let entries; // [{ name, label, note, unknown, repo }]
 			let footnote;
 			if (rec?.live && typeof bcModSdk?.getModsInfo === "function") {
 				// For yourself, list what's actually loaded rather than what other players could detect
 				entries = bcModSdk
 					.getModsInfo()
 					.sort((a, b) => a.name.localeCompare(b.name))
-					.map((m) => ({ name: addonInfo(m.name) ? m.name : m.fullName || m.name, label: m.version ? `${m.name} ${m.version}` : m.name, note: m.fullName || m.name }));
+					// repository: the link a mod gives ModSDK itself (only plain web links are used)
+					// Directory add-ons keep their short name (BCX, WCE); the rest show their full name, not an internal id
+					.map((m) => ({ m, name: addonInfo(m.name) ? m.name : m.fullName || m.name }))
+					.map(({ m, name }) => ({
+						name,
+						label: m.version ? `${name} ${m.version}` : name,
+						note: m.fullName || m.name,
+						repo: typeof m.repository === "string" && /^https?:\/\/[^\s"<>]+$/i.test(m.repository) ? m.repository : null,
+					}));
 				footnote = "Loaded in this game right now.";
 			} else {
 				const list = detectAddons(rec);
@@ -4827,9 +4835,11 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				const tip = info ? `${info.title}
 ${info.desc}
 
-${e.note}` : `${e.note}
+${e.note}` : e.repo ? `${e.note}
+Source: ${e.repo}` : `${e.note}
 Not in the add-on directory: opens a GitHub search.`;
-				return link({ class: `fm-chip fm-chip-link${e.unknown ? " fm-chip-unknown" : ""}`, href: addonLink(e.name), title: tip }, e.label);
+				// The directory's page first, then the link the add-on reports itself, then a search
+				return link({ class: `fm-chip fm-chip-link${e.unknown ? " fm-chip-unknown" : ""}`, href: info?.url || e.repo || addonLink(e.name), title: tip }, e.label);
 			});
 			const about = entries
 				.map((e) => ({ e, info: addonInfo(e.name) }))
@@ -4841,8 +4851,9 @@ Not in the add-on directory: opens a GitHub search.`;
 						" ",
 						info?.url ? link({ href: info.url }, info.url === info.repo ? "source" : "website") : null,
 						info?.repo && info.repo !== info.url ? [" · ", link({ href: info.repo }, "source")] : null,
-						!info ? link({ href: addonLink(e.name) }, "search GitHub") : null,
-						h("div", { class: "fm-muted" }, info ? info.desc : "Not in the FUSAM add-on directory.")
+						!info && e.repo ? link({ href: e.repo }, "source") : null,
+						!info && !e.repo ? link({ href: addonLink(e.name) }, "search GitHub") : null,
+						h("div", { class: "fm-muted" }, info ? info.desc : e.repo ? "Source linked by the add-on itself." : "Not in the FUSAM add-on directory.")
 					)
 				);
 			return h(

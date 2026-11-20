@@ -142,7 +142,9 @@ come from add-on markers in shared settings (MBS, ULTRAbc, LianChat, …) and fr
 (BCX, WCE, LSCG, BCTweaks, …). Only add-ons that announce themselves in rooms can be seen; private
 `ExtensionSettings` are never sent to other players. Each add-on chip links to its website or source
 (hover for a description), and **About these add-ons** lists what each one does. Names and links come
-from FUSAM's add-on directory, built into the script; add-ons it doesn't list link to a GitHub search.
+from FUSAM's add-on directory, built into the script. On your own profile, which lists the add-ons loaded right
+now, an add-on the directory doesn't know links to the repository it reports to ModSDK (BC Toolkit's add-ons
+show as **BC Toolkit: Quiet** and so on). Anything else links to a GitHub search.
 
 ### ⚙ Settings
 Per account, saved with that account's data.
