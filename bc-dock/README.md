@@ -107,8 +107,9 @@ fixed like any release, and **Latest never picks one**.
   brings those choices back.
 - **BC Toolkit (beta)** (`bc-toolkit-beta.user.js`, or `loader-beta.js` without Tampermonkey, or FUSAM's "dev"
   choice) is BC Toolkit with test versions switched on and every add-on starting at Beta. Install it **instead of**
-  BC Toolkit, not next to it. It's also how a test version of the dock itself is tried: its `@require` (and
-  `loader-beta.js`) can point at a `tk-vX.Y.Z-beta.N` tag while the normal script stays on the release.
+  BC Toolkit, not next to it. It's also how a test version of the dock itself is tried: its `@require` can point at
+  a `tk-vX.Y.Z-beta.N` tag (and `loader-beta.js` loads `dockBeta` from `toolkit.json`) while the normal script stays
+  on the release.
 
 ### In the game's Preferences
 
@@ -118,8 +119,9 @@ opens the dock's ⚙.
 
 ### Without Tampermonkey
 
-`loader.js` in the repository does what the BC Toolkit script does: it turns the loader on and adds the dock from
-its release. The [main README](../README.md#without-tampermonkey) has a console line and a bookmark that load it; an
+`loader.js` in the repository does what the BC Toolkit script does: it turns the loader on and adds the dock. Which
+dock release it adds comes from `toolkit.json` (`dock`), so a new dock reaches it within minutes and `loader.js`
+itself hardly ever changes. The [main README](../README.md#without-tampermonkey) has a console line and a bookmark that load it; an
 add-on manager can load it the same way (`tools/fusam-entry.json` is the entry for FUSAM's list). Running it twice,
 or next to the Tampermonkey script, does nothing more.
 

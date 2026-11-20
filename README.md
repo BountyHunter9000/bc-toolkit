@@ -47,13 +47,13 @@ the same as the script, but only for that page load, so you repeat it after each
 - **Console:** on the game page press F12, open **Console**, paste this and press Enter:
 
   ```js
-  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js';document.head.appendChild(s);
+  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js?'+Date.now();document.head.appendChild(s);
   ```
 
 - **Bookmark:** make a bookmark whose address is the line below, and click it on the game page:
 
   ```
-  javascript:(()=>{var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js';document.head.appendChild(s);})()
+  javascript:(()=>{var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js?'+Date.now();document.head.appendChild(s);})()
   ```
 
 Don't use these while the Tampermonkey script is installed; if you do, nothing loads twice.
@@ -110,14 +110,16 @@ Everyone on **Latest** gets it the next time the game loads.
 **Test versions** go through the same steps with a pre-release version and tag, e.g. `MOD_INFO.version`
 `"0.9.0-beta.1"` and tag `ag-v0.9.0-beta.1`. `node tools/toolkit-list.mjs` puts it in the add-on's `beta` list,
 which only people with test versions switched on see; Latest is unaffected. When the change is ready, release it as
-`0.9.0` as usual, and testers on Beta move to it. A test version of the dock: tag `tk-vX.Y.Z-beta.N` and point
-`bc-toolkit-beta.user.js` and `loader-beta.js` at it (not `bc-toolkit.user.js` or `loader.js`).
+`0.9.0` as usual, and testers on Beta move to it. A test version of the dock: tag `tk-vX.Y.Z-beta.N`, point
+`bc-toolkit-beta.user.js` at it, and run the list script (it becomes `dockBeta`, which `loader-beta.js` loads);
+`bc-toolkit.user.js` and `loader.js` stay on the release.
 
 A new add-on also needs an entry in `toolkit.json` (id, name, icon, file path, the name of its `window` object, tag
 prefix). A change to the dock is released with BC Toolkit itself: bump `@version` and the `@require` tag in
-`bc-toolkit.user.js`, put the same tag in `loader.js`, and tag that commit `tk-vX.Y.Z`. After pushing, refresh
-jsDelivr's copy of `loader.js` on main (`https://purge.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js`)
-so the console, bookmark and FUSAM installs get it straight away. Tampermonkey sees the new `@version` on `main` and
+`bc-toolkit.user.js` and `bc-toolkit-beta.user.js`, and tag that commit `tk-vX.Y.Z`. Then run
+`node tools/toolkit-list.mjs`, which records the new dock in `toolkit.json` (`dock`, and `dockBeta` for test
+versions), and commit that: `loader.js` and `loader-beta.js` read it from there, so the console, bookmark and
+FUSAM installs get the new dock within minutes, without `loader.js` changing. Tampermonkey sees the new `@version` on `main` and
 offers the update.
 
 ## License

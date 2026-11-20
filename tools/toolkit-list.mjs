@@ -40,6 +40,18 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const file = fileURLToPath(new URL("../toolkit.json", import.meta.url));
 const list = JSON.parse(readFileSync(file, "utf8"));
 const tags = execFileSync("git", ["tag", "-l"], { cwd: root, encoding: "utf8" }).split(/\r?\n/).filter(Boolean);
+// The dock releases, for loader.js and loader-beta.js (console, bookmark, FUSAM): they read which dock to load from
+// here, so a dock release reaches them as soon as toolkit.json is on main. "dockBeta" is the newest test version of
+// the dock, or the release once that's newer.
+{
+	const tk = tags.filter((t) => t.startsWith("tk-v")).map((t) => t.slice(4));
+	const rel = tk.filter((v) => RELEASE.test(v)).sort(newestFirst)[0];
+	const pre = tk.filter((v) => PRERELEASE.test(v)).sort(newestFirst)[0];
+	if (rel) list.dock = `tk-v${rel}`;
+	const beta = [rel, pre].filter(Boolean).sort(newestFirst)[0];
+	if (beta) list.dockBeta = `tk-v${beta}`;
+	console.log(`Dock: ${list.dock || "(no release)"}, test: ${list.dockBeta || "(none)"}`);
+}
 for (const a of list.addons) {
 	const all = tags.filter((t) => t.startsWith(a.prefix)).map((t) => t.slice(a.prefix.length));
 	a.versions = all.filter((v) => RELEASE.test(v)).sort(newestFirst).slice(0, KEEP);
