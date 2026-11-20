@@ -5,8 +5,10 @@
 A panel in Bondage Club chat rooms for doing activities (kiss, caress, wiggle, struggle, ...)
 without opening the character dialog and hunting through body zones every time.
 
-- **Target**: pick yourself or anyone in the room. Opening someone's dialog the normal way also
-  makes them the target.
+- **Target**: pick yourself or anyone in the room. It stays on them until you pick someone else in this
+  menu: opening someone's dialog, people coming and going, or the room refreshing don't change it. If they step
+  out, the menu shows them as "not here" and actions wait (nothing goes to you or anyone else instead) until
+  they're back or you pick again.
 - **Favorites**: pinned actions, one click each. `Alt+1`..`Alt+9` fire the first nine in order;
   drag a favorite onto another to reorder them (and so re-assign the hotkeys). Up to 30
   favorites each for "on myself" and "on others".

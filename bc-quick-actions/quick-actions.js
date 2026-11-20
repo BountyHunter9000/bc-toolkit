@@ -7,7 +7,7 @@
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
+	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
@@ -86,7 +86,7 @@
 
 	// Mirrors what the character dialog offers right now: permission, distance, restraints, gags...
 	function findAllowed(target, action) {
-		if (!target) return { error: "No target selected." };
+		if (!target) return { error: "Your target isn't in this room right now." };
 		if (!target.IsPlayer() && !ServerChatRoomGetAllowItem(Player, target)) return { error: `${target.Name} doesn't allow you to interact.` };
 		const group = AssetGroupGet(target.AssetFamily, action.group);
 		if (!group) return { error: "Unknown body zone." };
@@ -169,7 +169,11 @@
 		let panel = null; // our panel in the shared dock
 		let bar = null; // the panel's body element
 		let inRoom = false;
-		let target = null; // Character
+		let target = null; // Character, looked up from `chosen` on every tick (null while they're not in the room)
+		// Who you picked in the Target menu, by member number (null: yourself). Only that menu changes it: not opening
+		// someone's dialog, not people coming and going, not the game replacing its character objects on a room sync.
+		let chosen = null;
+		let chosenName = "";
 		let pickerOpen = false;
 		let pickerGroup = "";
 		let lastSig = "";
@@ -215,7 +219,7 @@
 			saveSettings();
 		}
 
-		const signature = () => [roomCharacters().map((c) => c.MemberNumber).join(","), target?.MemberNumber, panel?.isOpen(), pickerOpen].join("|");
+		const signature = () => [roomCharacters().map((c) => c.MemberNumber).join(","), target?.MemberNumber, chosen, panel?.isOpen(), pickerOpen].join("|");
 
 		// Called on a timer: show/hide with the chat room, follow the character you click, re-render on changes
 		function tick() {
@@ -224,9 +228,8 @@
 			panel.setVisible(inRoom);
 			if (!inRoom) return;
 			const chars = roomCharacters();
-			// Opening someone's dialog makes them the target
-			if (CurrentCharacter && chars.includes(CurrentCharacter)) target = CurrentCharacter;
-			if (!target || !chars.includes(target)) target = chars.find((c) => c.MemberNumber === target?.MemberNumber) || Player;
+			// If they step out, actions wait (nothing falls back to you) and pick them up again when they're back
+			target = chosen == null || chosen === Player.MemberNumber ? chars.find((c) => c.IsPlayer()) || Player : chars.find((c) => c.MemberNumber === chosen) || null;
 			if (signature() !== lastSig) render();
 		}
 
@@ -242,7 +245,7 @@
 		function render() {
 			if (!panel) return;
 			lastSig = signature();
-			panel.setSummary(target ? `→ ${target.IsPlayer() ? "you" : typeof CharacterNickname === "function" ? CharacterNickname(target) : target.Name}` : "");
+			panel.setSummary(target ? `→ ${target.IsPlayer() ? "you" : typeof CharacterNickname === "function" ? CharacterNickname(target) : target.Name}` : chosen != null ? `→ ${chosenName} (not here)` : "");
 			panel.actions.replaceChildren(
 				h("button", { class: "bcd-ico", title: "Smaller text", onclick: () => setScale(-0.1) }, "A−"),
 				h("button", { class: "bcd-ico", title: "Larger text", onclick: () => setScale(0.1) }, "A+"),
@@ -263,14 +266,21 @@
 				h(
 					"select",
 					{
-						title: "Who the actions are done to (clicking a character in the room also picks them)",
+						title: "Who the actions are done to. It stays on them until you pick someone else here.",
 						onchange: (e) => {
-							target = chars.find((c) => String(c.MemberNumber) === e.target.value) || Player;
+							const c = chars.find((x) => String(x.MemberNumber) === e.target.value);
+							if (c) {
+								chosen = c.IsPlayer() ? null : c.MemberNumber;
+								chosenName = nameOf(c);
+								target = c;
+							}
 							e.target.blur();
 							render();
 						},
 					},
-					chars.map((c) => h("option", { value: String(c.MemberNumber), selected: c === target }, nameOf(c)))
+					// Someone you picked who has stepped out stays selected, so nothing goes to anyone else by accident
+					!target && chosen != null ? h("option", { value: "", selected: true, disabled: true }, `${chosenName} (not here)`) : null,
+					chars.map((c) => h("option", { value: String(c.MemberNumber), selected: !!target && c.MemberNumber === target.MemberNumber }, nameOf(c)))
 				),
 				h("div", { class: "qa-head" }, "Favorites"),
 				h("div", { class: "qa-col" }, favs.length ? favs.map((a) => actionButton(a, settings.favorites.indexOf(a), true)) : h("span", { class: "qa-lbl" }, "Pin actions with ☆")),
