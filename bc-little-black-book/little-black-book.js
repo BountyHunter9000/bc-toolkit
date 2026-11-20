@@ -10,7 +10,7 @@
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.6", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.7", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -4607,20 +4607,35 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			return rec;
 		}
 
-		// Saving keeps the restraints as well when there are any; "without restraints" keeps just the clothes
+		// Two snapshots are the same look when their clothes and restraints match
+		const outfitSig = (o) => JSON.stringify([o.pieces || [], o.restraints || []]);
+
+		// Saving keeps the restraints as well when there are any; "without restraints" keeps just the clothes.
+		// The profile view redraws as soon as the save lands, so the button reads Outfits to show it's saved: the same
+		// look from the same person shows "Saved ✓" instead of saving a second copy.
 		function saveOutfitButton(d, rec) {
 			const snap = snapshotOutfit(d);
 			const who = rec.nickname || rec.name || `#${rec.member}`;
 			const make = (label, title, withRestraints) => {
+				const keep = withRestraints ? snap : { ...snap, restraints: [] };
+				const sig = outfitSig(keep);
+				const have = savedOutfits.find((o) => o.from === rec.member && outfitSig(o) === sig);
+				if (have) return h("button", { disabled: true, title: `Already in Outfits as “${have.name}”` }, "Saved ✓");
 				const btn = h(
 					"button",
 					{
 						title,
 						onclick: async () => {
-							const keep = withRestraints ? snap : { ...snap, restraints: [] };
-							await saveOutfit(keep, withRestraints ? `${who}'s outfit + restraints` : `${who}'s outfit`, { member: rec.member, name: who });
-							btn.textContent = "Saved ✓";
 							btn.disabled = true;
+							btn.textContent = "Saving…";
+							try {
+								await saveOutfit(keep, withRestraints ? `${who}'s outfit + restraints` : `${who}'s outfit`, { member: rec.member, name: who });
+								btn.textContent = "Saved ✓";
+							} catch (e) {
+								console.warn(TAG, "saving the outfit failed", e);
+								btn.textContent = "Couldn't save";
+								btn.disabled = false;
+							}
 							reload();
 						},
 					},
