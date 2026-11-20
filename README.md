@@ -1,13 +1,13 @@
 # BC Toolkit
 
 Small, consent-first add-ons for [Bondage Club](https://www.bondageprojects.com/), sharing one dock
-on the edge of the screen. Install them all with **one script** and switch each on in the dock, or install only
-the ones you want, each with its own script.
+on the edge of the screen. Install them all with **one script**, BC Toolkit, and turn off any you don't want in
+the dock.
 
 **[Install BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** (all add-ons,
 one script; see [Installing](#installing))
 
-| Add-on | What it does | Separate script |
+| Add-on | What it does | Only this one |
 |---|---|---|
 | 📓 [Little Black Book](bc-little-black-book/README.md) | Profiles of people you meet (even when they're offline), beep and whisper chats, room logs, saved outfits, online alerts. `/book` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-little-black-book/little-black-book.user.js) |
 | ⚡ [Quick Actions](bc-quick-actions/README.md) | Favourite and recent activities one click away, on yourself or anyone in the room | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-quick-actions/quick-actions.user.js) |
@@ -17,7 +17,7 @@ one script; see [Installing](#installing))
 | 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-held-remote/held-remote.user.js) |
 | 🔧 [Vibe Fix](bc-vibe-fix/README.md) | Stopgap for an R134 bug where vibrators never turn down: Off and lower levels (and Escalate starting over) set the intensity you picked again. No settings. | [Install](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-vibe-fix/vibe-fix.user.js) |
 
-The [dock](bc-dock/README.md) comes along with whichever add-on you install: a rail of tabs with
+The [dock](bc-dock/README.md) comes with BC Toolkit (and with each separate script): a rail of tabs with
 themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
 ("Sky · Bondage Club"), so your game tabs are easy to tell apart.
 
@@ -33,7 +33,7 @@ Each add-on has a menu: **Off**, **Latest** (moves to new releases each time the
 to stay on. Changes apply right away, without reloading the game. Your choices are kept in this browser. See
 [the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more.
 
-**Or one script per add-on:** click **Install** in the table above for the ones you want. Those update through
+**Or one script per add-on:** if you'd rather install only some, use the links in the table's last column. Those update through
 Tampermonkey. Don't mix the two for the same add-on: if an add-on's own script is installed, BC Toolkit leaves
 that add-on to it (its menu says so); turn the separate script off in Tampermonkey to choose its version in the
 dock instead.
