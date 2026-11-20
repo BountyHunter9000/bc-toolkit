@@ -44,10 +44,11 @@ otherwise. Or keep BC Toolkit and switch on **Show test versions** in ⚙ to try
 On a phone, or if you'd rather not install a script manager, load BC Toolkit straight into the game page. It does
 the same as the script, but only for that page load, so you repeat it after each reload.
 
-- **Console:** on the game page press F12, open **Console**, paste this and press Enter:
+- **Console:** on the game page press F12, open **Console**, paste this and press Enter. (The first time, Chrome and
+  Firefox refuse the paste and ask you to type `allow pasting` first.)
 
   ```js
-  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js?'+Date.now();document.head.appendChild(s);
+  document.head.appendChild(Object.assign(document.createElement('script'),{src:'https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js?'+Date.now()}))
   ```
 
 - **Bookmark:** make a bookmark whose address is the line below, and click it on the game page:
