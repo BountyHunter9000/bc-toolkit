@@ -1,0 +1,21 @@
+{
+  "id": "BCToolkit",
+  "name": "BC Toolkit",
+  "description": "Seven add-ons in one dock: Little Black Book (profiles, chats, room logs), Quick Actions, Vibe Link (real toys through Intiface), Afterglow (orgasm and denial stats), Quiet (mute a tab), Held Remote and Vibe Fix. Pick which run, and their versions, in the dock's settings or Preferences → Extensions.",
+  "author": "BountyHunter9000",
+  "repository": "https://github.com/BountyHunter9000/bc-toolkit",
+  "tags": [
+    "enhancements"
+  ],
+  "type": "script",
+  "versions": [
+    {
+      "distribution": "stable",
+      "source": "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js"
+    },
+    {
+      "distribution": "dev",
+      "source": "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader-beta.js"
+    }
+  ]
+}

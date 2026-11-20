@@ -8,7 +8,7 @@
 // over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 15; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙
+	const VERSION = 16; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions)
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -221,6 +221,15 @@
 .bcd-cfg .tk .st{grid-column:1/-1;font-size:10px;color:#999;margin:-1px 0 3px 18px}
 .bcd-cfg .tk .st.bad{color:#e88}.bcd-cfg .tk .st.ok{color:#8c8}.bcd-cfg .tk .st.new{color:#9cf}
 .bcd-tab.cfg.upd{opacity:1}
+#bcd-ext{box-sizing:border-box;overflow:auto;padding:.6em 1em;background:rgb(var(--bcd-bg) / .96);color:var(--bcd-text);border:2px solid var(--bcd-line);border-radius:10px;box-shadow:0 4px 18px #000a;font-family:sans-serif}
+#bcd-ext h3{margin:0 0 .2em;font-size:1.3em}
+#bcd-ext .hint,#bcd-ext .bcd-vers{font-size:.75em}
+#bcd-ext h4{font-size:.6em;margin:.8em 0 .2em}
+#bcd-ext .tk{font-size:.9em;grid-template-columns:auto auto;justify-content:start;gap:.2em 1.2em}
+#bcd-ext .tk select,#bcd-ext button{font:inherit;font-size:.85em;max-width:none;color:var(--bcd-text);background:var(--bcd-ctl);border:1px solid var(--bcd-ctl-line);border-radius:6px;padding:.1em .5em;cursor:pointer}
+#bcd-ext button:disabled{opacity:.5;cursor:default}
+#bcd-ext .tk .st{font-size:.7em;margin:0 0 .4em 1.6em}
+#bcd-ext .row{display:flex;align-items:center;gap:.5em;margin:.4em 0;flex-wrap:wrap}
 .bcd-tab.cfg.upd::after{content:"";position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:#5c8;box-shadow:0 0 4px #5c8}
 .bcd-cfg input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid var(--bcd-ctl-line);border-radius:4px;background:var(--bcd-ctl);cursor:pointer}
 `;
@@ -307,14 +316,19 @@
 				"Character name in the tab"
 			),
 			...(tkOn() ? [] : [el("h4", {}, "Add-ons")]),
-			el(
-				"div",
-				{ class: "bcd-vers", style: tkOn() ? "display:none" : null },
-				[...panels.values()].sort((a, b) => a.spec.order - b.spec.order).flatMap((p) => [el("span", {}, `${p.spec.icon ? p.spec.icon + " " : ""}${p.spec.title}`), el("span", {}, verText(p) || "version not reported")]),
-				el("span", {}, "⚙ Dock"),
-				el("span", {}, `v${VERSION}`)
-			),
+			tkOn() ? null : versList(),
 			...(devOn() ? devSection() : [])
+		);
+	}
+
+	// The add-ons in the dock and their versions (without the BC Toolkit loader, whose menus say it instead)
+	function versList() {
+		return el(
+			"div",
+			{ class: "bcd-vers" },
+			[...panels.values()].sort((a, b) => a.spec.order - b.spec.order).flatMap((p) => [el("span", {}, `${p.spec.icon ? p.spec.icon + " " : ""}${p.spec.title}`), el("span", {}, verText(p) || "version not reported")]),
+			el("span", {}, "⚙ Dock"),
+			el("span", {}, `v${VERSION}`)
 		);
 	}
 
@@ -994,6 +1008,7 @@
 				global: a.global,
 				prefix: a.prefix,
 				versions: a.versions.filter((v) => ok(/^\d+\.\d+\.\d+$/, v)).slice(0, 20),
+				beta: Array.isArray(a.beta) ? a.beta.filter((v) => ok(/^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/, v)).slice(0, 20) : [],
 			}));
 		return addons.length ? { format: "BCToolkit", addons } : null;
 	}
@@ -1028,13 +1043,46 @@
 		return false;
 	}
 
-	// Every add-on runs at Latest until you pick something else (add-ons new to the list too)
-	const tkPick = (id) => (state.tk && typeof state.tk[id] === "string" ? state.tk[id] : "latest");
+	// Test versions are pre-release tags (ag-v0.9.0-beta.1). They're only offered while "Show test versions" is on in ⚙
+	// (saved in this browser; the BC Toolkit (beta) script turns it on until you switch it off). Latest never picks one.
+	const TK_VER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+	const tkIsTest = (v) => typeof v === "string" && v.includes("-");
+	const tkBetaOn = () => (typeof state.tkBeta === "boolean" ? state.tkBeta : tkCfg().beta === true);
+	// Negative when a is newer (semantic versioning: 0.9.0 > 0.9.0-beta.2 > 0.9.0-beta.1 > 0.8.2)
+	function tkCmp(a, b) {
+		const [am, ap] = a.split(/-(.*)/s);
+		const [bm, bp] = b.split(/-(.*)/s);
+		const x = am.split(".").map(Number);
+		const y = bm.split(".").map(Number);
+		for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return y[i] - x[i];
+		if (!ap !== !bp) return ap ? 1 : -1;
+		if (!ap) return 0;
+		const p = ap.split(".");
+		const q = bp.split(".");
+		for (let i = 0; i < Math.max(p.length, q.length); i++) {
+			if (p[i] === undefined) return 1;
+			if (q[i] === undefined) return -1;
+			const d = /^\d+$/.test(p[i]) && /^\d+$/.test(q[i]) ? Number(q[i]) - Number(p[i]) : q[i].localeCompare(p[i]);
+			if (d) return d;
+		}
+		return 0;
+	}
+	// Beta: the newest of the latest release and the latest test version (so it moves on to the release that follows)
+	const tkNewestBeta = (a) => [a.versions[0], a.beta[0]].filter(Boolean).sort(tkCmp)[0] || null;
+	// Every add-on runs at Latest until you pick something else (add-ons new to the list too), or at Beta with the beta
+	// script. With test versions switched off, a Beta or test-version choice runs as Latest (and comes back when it's on).
+	function tkPick(id) {
+		let p = state.tk && typeof state.tk[id] === "string" ? state.tk[id] : tkCfg().beta === true && tkBetaOn() ? "beta" : "latest";
+		if (!tkBetaOn() && (p === "beta" || tkIsTest(p))) p = "latest";
+		return p;
+	}
 	function tkWant(a) {
 		const p = tkPick(a.id);
 		if (p === "latest") return a.versions[0] || null;
-		return /^\d+\.\d+\.\d+$/.test(p) ? p : null;
+		if (p === "beta") return tkNewestBeta(a);
+		return TK_VER.test(p) ? p : null;
 	}
+	const tkFollows = (a) => ["latest", "beta"].includes(tkPick(a.id));
 	function tkRunning(a) {
 		try {
 			const g = window[a.global];
@@ -1104,7 +1152,7 @@
 	}
 
 	function tkSet(id, pick) {
-		if (pick !== "off" && pick !== "latest" && !/^\d+\.\d+\.\d+$/.test(pick)) return;
+		if (pick !== "off" && pick !== "latest" && pick !== "beta" && !TK_VER.test(pick)) return;
 		state.tk = { ...(state.tk || {}), [id]: pick };
 		save();
 		const a = tk.list?.addons.find((x) => x.id === id);
@@ -1162,9 +1210,10 @@
 		// The status lines under the menus change as add-ons start; updated in place so an open menu stays open
 		clearInterval(tkStatusTimer);
 		tkStatusTimer = setInterval(() => {
-			if (active !== CFG || !tkOn()) return;
-			for (const a of tk.list?.addons || []) {
-				const node = cfgBody.querySelector(`.st[data-tk="${a.id}"]`);
+			if (!tkOn()) return;
+			const roots = [active === CFG ? cfgBody : null, extBox].filter(Boolean);
+			for (const a of tk.list?.addons || []) for (const root of roots) {
+				const node = root.querySelector(`.st[data-tk="${a.id}"]`);
 				if (!node) continue;
 				const [cls, text] = tkStatus(a);
 				if (node.textContent !== text) node.textContent = text;
@@ -1175,12 +1224,14 @@
 
 	const tkRender = () => {
 		tkMark();
-		if (active === CFG && window.BCDock === api) renderCfg();
+		if (window.BCDock !== api) return;
+		if (active === CFG) renderCfg();
+		extRender();
 	};
 
-	// Add-ons on Latest that are running an older release than the list's newest
+	// Add-ons on Latest (or Beta) that are running something older than what that now means
 	const tkUpdates = () =>
-		(tk.list?.addons || []).filter((a) => !tk.own[a.id] && !tk.busy[a.id] && tkPick(a.id) === "latest" && a.versions[0] && tk.mine[a.id] && tk.mine[a.id] !== a.versions[0]);
+		(tk.list?.addons || []).filter((a) => !tk.own[a.id] && !tk.busy[a.id] && tkFollows(a) && tkWant(a) && tk.mine[a.id] && tk.mine[a.id] !== tkWant(a));
 
 	// A green dot on ⚙ while updates are waiting
 	function tkMark() {
@@ -1205,7 +1256,7 @@
 			tk.checking = false;
 		}
 		const ups = tkUpdates();
-		if (ups.length) console.log("[BCDock]", `updates ready: ${ups.map((a) => `${a.name} v${a.versions[0]}`).join(", ")} (⚙ → Add-ons → Update now, or reload the game)`);
+		if (ups.length) console.log("[BCDock]", `updates ready: ${ups.map((a) => `${a.name} v${tkWant(a)}`).join(", ")} (⚙ → Add-ons → Update now, or reload the game)`);
 		tkRender();
 	}
 
@@ -1216,9 +1267,9 @@
 		const want = tkWant(a);
 		const run = tkRunning(a);
 		if (!want) return run ? ["bad", `v${run} still running; reload the game to stop it`] : ["", ""];
-		if (run === want) return ["ok", `v${run} running`];
+		if (run === want) return ["ok", `v${run} running${tkIsTest(run) ? " (test version)" : ""}`];
 		if (tk.mine[a.id] === want) return ["", `v${want} starting…`];
-		if (tkPick(a.id) === "latest" && tk.mine[a.id]) return ["new", `v${want} is out (running v${run || tk.mine[a.id]}). Update now, or it's used when the game next loads.`];
+		if (tkFollows(a) && tk.mine[a.id]) return ["new", `v${want} is out (running v${run || tk.mine[a.id]}). Update now, or it's used when the game next loads.`];
 		if (!tk.started) return ["", ""];
 		return ["", `v${want} not loaded yet`];
 	}
@@ -1245,9 +1296,11 @@
 				{ title: a.about, disabled: !!tk.own[a.id], onchange: (e) => tkSet(a.id, e.target.value) },
 				el("option", { value: "off" }, "Off"),
 				el("option", { value: "latest" }, a.versions[0] ? `Latest (${a.versions[0]})` : "Latest"),
+				tkBetaOn() ? el("option", { value: "beta" }, tkNewestBeta(a) ? `Beta (${tkNewestBeta(a)})` : "Beta") : null,
+				tkBetaOn() ? a.beta.map((v) => el("option", { value: v }, `v${v} (test)`)) : null,
 				a.versions.map((v) => el("option", { value: v }, `v${v}`)),
 				// a fixed version that has dropped off the list stays as it is
-				/^\d/.test(pick) && !a.versions.includes(pick) ? el("option", { value: pick }, `v${pick}`) : null
+				/^\d/.test(pick) && !a.versions.includes(pick) && !(tkBetaOn() && a.beta.includes(pick)) ? el("option", { value: pick }, `v${pick}${tkIsTest(pick) ? " (test)" : ""}`) : null
 			);
 			sel.value = pick;
 			const [cls, text] = tkStatus(a);
@@ -1257,7 +1310,101 @@
 			el("div", { class: "tk" }, rows),
 			el("div", { class: "row" }, el("span", { class: "hint", style: "flex:1" }, tkAge()), el("button", { onclick: tkCheck, disabled: tk.checking }, tk.checking ? "Checking…" : tkUpdates().length ? "Update now" : "Check for updates")),
 			el("div", { class: "hint" }, "Changes apply right away. Latest moves to new releases each time the game loads; in between, new ones are looked for every 24 hours and shown here (and as a dot on ⚙) without interrupting you. An older version may not read what a newer one saved."),
+			el(
+				"label",
+				{ class: "row", title: "Adds Beta and the test versions of each add-on to its menu. Latest never picks a test version." },
+				el("input", {
+					type: "checkbox",
+					checked: tkBetaOn(),
+					onchange: async (e) => {
+						state.tkBeta = e.target.checked;
+						save();
+						// Switching off takes anything on a test version back to Latest right away
+						if (tk.started) for (const x of tk.list?.addons || []) await tkApply(x);
+						tkRender();
+					},
+				}),
+				"Show test versions"
+			),
+			tkBetaOn() ? el("div", { class: "hint" }, "Test versions are for trying changes before they're released, and may have bugs. Beta follows the newest test version, or the release once that's newer.") : null,
 		];
+	}
+
+	// ---------- the game's Preferences → Extensions ----------
+	// A "BC Toolkit" page there, beside WCE's, BCX's and the rest: the add-on menus (with the loader) or the versions
+	// running, and a button for the dock's ⚙. The game draws the screen and its exit button; the content is a panel
+	// placed over the canvas with the game's own positioning, so it follows the window size.
+	const EXT_ID = "BCToolkit";
+	let extBox = null;
+	const EXIT = [1815, 75, 90, 90];
+
+	function extRender() {
+		if (!extBox) return;
+		extBox.replaceChildren(
+			el("h3", {}, "BC Toolkit"),
+			el(
+				"div",
+				{ class: "hint" },
+				tkOn()
+					? "Which add-ons run, and at which version. Changes apply right away. The same menus are in the dock's ⚙."
+					: "The add-ons running now. With the BC Toolkit script you can also pick which run, and their versions, here."
+			),
+			el("h4", {}, "Add-ons"),
+			...(tkOn() ? tkSection() : [versList()]),
+			el("h4", {}, "Dock"),
+			el(
+				"div",
+				{ class: "row" },
+				el("button", { onclick: () => setActive(CFG) }, "Open the dock's ⚙ settings"),
+				el("span", { class: "hint" }, `Dock v${VERSION}: themes, side, opacity, the name in the browser tab`)
+			)
+		);
+	}
+	function extPlace() {
+		if (extBox && typeof ElementPositionFix === "function") ElementPositionFix(extBox, 30, 500, 120, 1250, 820);
+	}
+	const extSetting = {
+		Identifier: EXT_ID,
+		ButtonText: "BC Toolkit",
+		load() {
+			extBox?.remove();
+			extBox = el("div", { id: "bcd-ext" });
+			// keep typing and scrolling in the panel away from the game
+			for (const ev of ["keydown", "keyup", "keypress", "wheel"]) extBox.addEventListener(ev, (e) => e.stopPropagation());
+			document.body.append(extBox);
+			extRender();
+			extPlace();
+		},
+		run() {
+			if (typeof DrawButton === "function") DrawButton(...EXIT, "", "White", "Icons/Exit.png", "Back to Extensions");
+		},
+		click() {
+			if (typeof MouseIn === "function" && MouseIn(...EXIT) && typeof PreferenceSubscreenExtensionsClear === "function") PreferenceSubscreenExtensionsClear();
+		},
+		exit() {
+			return true;
+		},
+		unload() {
+			extBox?.remove();
+			extBox = null;
+		},
+		resize: () => extPlace(),
+	};
+	// Registered once the game's preference code is there. A newer dock taking over puts its own handlers into the same
+	// entry (the game allows one per name).
+	let extTimer = null;
+	function extRegister() {
+		clearInterval(extTimer);
+		const tryIt = () => {
+			if (window.BCDock !== api) return clearInterval(extTimer);
+			if (typeof PreferenceRegisterExtensionSetting !== "function" || typeof PreferenceExtensionsSettings === "undefined") return;
+			clearInterval(extTimer);
+			const existing = PreferenceExtensionsSettings[EXT_ID];
+			if (existing) Object.assign(existing, extSetting);
+			else PreferenceRegisterExtensionSetting(extSetting);
+		};
+		extTimer = setInterval(tryIt, 1000);
+		tryIt();
 	}
 
 	// ---------- start ----------
@@ -1314,6 +1461,9 @@
 			clearInterval(tkTimer);
 			clearInterval(tkStatusTimer);
 			clearTimeout(tkPollTimer);
+			clearInterval(extTimer);
+			extBox?.remove();
+			extBox = null;
 			const out = {
 				active: active === CFG ? null : active,
 				panels: [...panels.values()].map((p) => ({
@@ -1341,5 +1491,6 @@
 	};
 	window.BCDock = api;
 	tkWatch();
+	extRegister();
 	if (reopen) setActive(reopen);
 })();

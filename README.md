@@ -31,7 +31,32 @@ themes, opacity and position settings (its ⚙ tab). It also puts the character'
 
 Each add-on has a menu: **Off**, **Latest** (moves to new releases each time the game loads), or a fixed version
 to stay on. Changes apply right away, without reloading the game. Your choices are kept in this browser. See
-[the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more.
+[the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more. The same menus are in the game's
+**Preferences → Extensions → BC Toolkit**.
+
+**Helping test new versions?** Install **[BC Toolkit (beta)](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit-beta.user.js)**
+instead of BC Toolkit (not both). Every add-on then runs its newest test version where there is one, and its release
+otherwise. Or keep BC Toolkit and switch on **Show test versions** in ⚙ to try just one add-on's test version.
+[More about test versions](bc-dock/README.md#test-versions).
+
+### Without Tampermonkey
+
+On a phone, or if you'd rather not install a script manager, load BC Toolkit straight into the game page. It does
+the same as the script, but only for that page load, so you repeat it after each reload.
+
+- **Console:** on the game page press F12, open **Console**, paste this and press Enter:
+
+  ```js
+  var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js';document.head.appendChild(s);
+  ```
+
+- **Bookmark:** make a bookmark whose address is the line below, and click it on the game page:
+
+  ```
+  javascript:(()=>{var s=document.createElement('script');s.src='https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js';document.head.appendChild(s);})()
+  ```
+
+Don't use these while the Tampermonkey script is installed; if you do, nothing loads twice.
 
 **Had the older one-script-per-add-on installs?** Those scripts are retired and no longer update. Delete them in
 Tampermonkey (Dashboard: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet, Held Remote, Vibe Fix) and
@@ -82,9 +107,17 @@ Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-
 BC Toolkit loads each add-on from its tag through jsDelivr, so a release never changes under anyone.
 Everyone on **Latest** gets it the next time the game loads.
 
+**Test versions** go through the same steps with a pre-release version and tag, e.g. `MOD_INFO.version`
+`"0.9.0-beta.1"` and tag `ag-v0.9.0-beta.1`. `node tools/toolkit-list.mjs` puts it in the add-on's `beta` list,
+which only people with test versions switched on see; Latest is unaffected. When the change is ready, release it as
+`0.9.0` as usual, and testers on Beta move to it. A test version of the dock: tag `tk-vX.Y.Z-beta.N` and point
+`bc-toolkit-beta.user.js` and `loader-beta.js` at it (not `bc-toolkit.user.js` or `loader.js`).
+
 A new add-on also needs an entry in `toolkit.json` (id, name, icon, file path, the name of its `window` object, tag
 prefix). A change to the dock is released with BC Toolkit itself: bump `@version` and the `@require` tag in
-`bc-toolkit.user.js` and tag that commit `tk-vX.Y.Z`. Tampermonkey sees the new `@version` on `main` and
+`bc-toolkit.user.js`, put the same tag in `loader.js`, and tag that commit `tk-vX.Y.Z`. After pushing, refresh
+jsDelivr's copy of `loader.js` on main (`https://purge.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/loader.js`)
+so the console, bookmark and FUSAM installs get it straight away. Tampermonkey sees the new `@version` on `main` and
 offers the update.
 
 ## License

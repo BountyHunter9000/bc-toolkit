@@ -94,6 +94,35 @@ How it works:
   the loader runs. Console: `BCDock.toolkit.status()`, `BCDock.toolkit.set(id, "latest" | "off" |
   "0.8.1")`, `BCDock.toolkit.check()`.
 
+### Test versions
+
+Test versions let people try a change before it's released. They're pre-release tags such as `ag-v0.9.0-beta.1`,
+fixed like any release, and **Latest never picks one**.
+
+- Switch on **Show test versions** under the menus (in ⚙ or the Preferences page). Each menu then also offers
+  **Beta (x.y.z-beta.n)** and the individual test versions, marked "(test)". The setting is kept in this browser.
+- **Beta** follows the newest test version, and moves on to the release once that's newer, so a tester never stays
+  behind a release. New test versions are pointed out like any update (dot on ⚙, **Update now**).
+- Switching test versions off puts anything on Beta or a test version back on Latest right away; switching on again
+  brings those choices back.
+- **BC Toolkit (beta)** (`bc-toolkit-beta.user.js`, or `loader-beta.js` without Tampermonkey, or FUSAM's "dev"
+  choice) is BC Toolkit with test versions switched on and every add-on starting at Beta. Install it **instead of**
+  BC Toolkit, not next to it. It's also how a test version of the dock itself is tried: its `@require` (and
+  `loader-beta.js`) can point at a `tk-vX.Y.Z-beta.N` tag while the normal script stays on the release.
+
+### In the game's Preferences
+
+The dock adds a **BC Toolkit** page to the game's **Preferences → Extensions**, next to WCE's, BCX's and the
+others: the same add-on menus and status lines (or, without the loader, the versions running), and a button that
+opens the dock's ⚙.
+
+### Without Tampermonkey
+
+`loader.js` in the repository does what the BC Toolkit script does: it turns the loader on and adds the dock from
+its release. The [main README](../README.md#without-tampermonkey) has a console line and a bookmark that load it; an
+add-on manager can load it the same way (`tools/fusam-entry.json` is the entry for FUSAM's list). Running it twice,
+or next to the Tampermonkey script, does nothing more.
+
 ## Reloading the add-ons without reloading the game
 
 Developer tools are hidden unless a Tampermonkey loader turns them on. The dev loaders do it with
