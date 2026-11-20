@@ -7,7 +7,7 @@
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.14.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
+	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.0", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -461,6 +461,28 @@
 	let retryDelay = 3000;
 	const client = new ButtplugClient(onServerEvent);
 
+	// A virtual toy: a pretend one-motor toy that needs no Intiface, so you can see what Vibe Link would do (its chart,
+	// percentage, presets, Play on my toys) before getting a real toy going. Nothing is sent anywhere, and only you can
+	// drive it: controllers aren't shown it. It's a switch for this browser (⚙ → Connection), off by default.
+	const VIRTUAL = { DeviceIndex: -1, DeviceName: "Virtual toy", DeviceDisplayName: "Virtual toy", DeviceMessages: { ScalarCmd: [{ StepCount: 20, ActuatorType: "Vibrate" }] } };
+	const virtualOn = () => !!local.virtual;
+	function syncVirtual() {
+		const have = [...toys.values()].filter((t) => t.virtual);
+		if (virtualOn() && !have.length) for (const t of makeToys(VIRTUAL)) toys.set(t.id, Object.assign(t, { virtual: true }));
+		else if (!virtualOn()) for (const t of have) toys.delete(t.id);
+	}
+	function setVirtual(on) {
+		local.virtual = !!on;
+		saveLocal();
+		syncVirtual();
+		ui.renderSoon();
+	}
+	// Real toys come and go with Intiface; the virtual toy stays
+	function resetToys() {
+		for (const t of [...toys.values()]) if (!t.virtual) toys.delete(t.id);
+		syncVirtual();
+	}
+
 	// One toy per vibration motor (a toy with none is still listed, hidden by default). Motor 1 keeps the device's own
 	// key, so links made before motors were split still work; motor 2 and up are "<key> motor N".
 	function makeToys(d) {
@@ -581,7 +603,7 @@
 			scanning = false;
 			ui.renderSoon();
 		} else if (type === "disconnected") {
-			toys.clear();
+			resetToys();
 			clearTimeout(scanTimer);
 			scanning = false;
 			conn = "failed";
@@ -673,7 +695,7 @@
 			await client.connect(settings.url);
 			conn = "connected";
 			retryDelay = 3000;
-			toys.clear();
+			resetToys();
 			const list = await client.request("RequestDeviceList");
 			// Only the toys Intiface already has; no Bluetooth scan unless you ask for one (Look for toys)
 			for (const d of list?.DeviceList?.Devices || []) addDevice(d);
@@ -693,7 +715,7 @@
 		client.stopAll();
 		client.close();
 		dropLock();
-		toys.clear();
+		resetToys();
 		conn = "idle";
 		scanning = false;
 		ui.renderSoon();
@@ -800,7 +822,7 @@
 		}
 		toy.value = glideValue(toy, now);
 
-		if (!client.connected || !toy.vibes.length || toy.sending) return;
+		if (toy.virtual || !client.connected || !toy.vibes.length || toy.sending) return;
 		const steps = toy.vibes[0].StepCount;
 		const q = Math.round(toy.value * steps) / steps;
 		if (q === toy.sent) return;
@@ -1250,6 +1272,7 @@
 	function laneFor(toy) {
 		const rc = remoteCtl;
 		if (!rc || !(grants.has(rc.by) || rc.lost) || !remoteToys().includes(toy)) return null;
+		if (toy.virtual && !isSelf(rc.by)) return null; // only you drive the virtual toy
 		if (isSelf(rc.by) && !selfAccess().slots.has(settings.links[toy.key])) return null;
 		const lane = rc.lanes.get(toy.key) || rc.lanes.get(ALL) || null;
 		// A toy stopped on its own goes back to the game even while "all toys" plays
@@ -2209,7 +2232,7 @@
 			for (const m of grants.keys()) {
 				const mine = remoteCtl?.by === m;
 				// Per toy: name, key, real strength, whether it can be controlled, and what it's doing (pattern / live / game)
-				const list = shownToys().map((t) => {
+				const list = shownToys().filter((t) => !t.virtual || isSelf(m)).map((t) => {
 					const lane = mine ? laneFor(t) : null;
 					const row = { n: t.display, k: t.key, pct: Math.round(t.value * 100), e: driven.includes(t) ? 1 : 0, m: !lane ? "game" : lane.lvl != null ? "lvl" : lane.mode ? "mode" : lane.pat ? "pat" : "live" };
 					if (lane?.lvl != null) row.lv = lane.lvl;
@@ -2389,6 +2412,7 @@
 		function statusDot() {
 			if (local.paused) return "bad";
 			if (conn === "connected") return toys.size ? "on" : "wait";
+			if (virtualOn() && conn !== "connecting" && conn !== "busy") return "on";
 			if (conn === "connecting" || conn === "busy") return "wait";
 			return conn === "failed" ? "bad" : "";
 		}
@@ -2410,7 +2434,7 @@
 			// What you're playing on others shows first, even without a toy of your own
 			const drivingOnly = drivingText();
 			const own = local.paused ? "Stopped" : conn === "connecting" ? "Connecting…" : conn === "busy" ? busyText() : conn !== "connected" ? (conn === "failed" ? "Intiface not reachable" : "Not connected") : null;
-			if (own) return drivingOnly.length ? `${drivingOnly.join(" · ")} · ${own}` : own;
+			if (own && (local.paused || !virtualOn())) return drivingOnly.length ? `${drivingOnly.join(" · ")} · ${own}` : own;
 			if (!toys.size) return drivingOnly.length ? drivingOnly.join(" · ") : scanning ? "Looking for toys…" : "No toys";
 			const pcts = shownToys().map((t) => `${t.display} ${Math.round(t.value * 100)}%`).join(" · ") || "No toys shown";
 			const mine = remoteCtl && (grants.has(remoteCtl.by) || remoteCtl.lost) ? `🎮 ${isSelf(remoteCtl.by) ? "You" : nameOf(remoteCtl.by)} · ${pcts}` : pcts;
@@ -3434,6 +3458,9 @@
 					conn === "connected" && h("button", { onclick: scanning ? stopScan : startScan }, scanning ? "Stop looking" : "Look for toys")
 				)
 			);
+			out.push(
+				h("div", { class: "row" }, h("label", { title: "A pretend toy that needs no Intiface. Nothing is sent anywhere, and people controlling your toys don't see it." }, h("input", { type: "checkbox", "data-id": "virtual", checked: virtualOn(), onchange: (e) => setVirtual(e.target.checked) }), " Virtual toy (try Vibe Link without a toy)"))
+			);
 
 		}
 
@@ -3441,6 +3468,8 @@
 			// Toys
 			out.push(h("h3", {}, "Toys"));
 			if (!toys.size) out.push(h("div", { class: "hint" }, conn === "connected" ? "No toys. Turn the toy on and press Look for toys (it looks for 30 seconds), or pair it in Intiface Central. Not in Windows Bluetooth settings." : "Connect to see toys."));
+			if (!toys.size || (conn !== "connected" && !virtualOn()))
+				out.push(h("div", { class: "row" }, h("button", { class: "vl-wide", title: "A pretend toy that needs no Intiface: see what Vibe Link would do with your vibrators", onclick: () => setVirtual(true) }, "Try a virtual toy")));
 			const slots = vibeSlots();
 			const hidden = toys.size - shownToys().length;
 			if (hidden) out.push(h("div", { class: "hint" }, `${hidden} hidden (no vibration motor, or you hid ${hidden > 1 ? "them" : "it"}): ⚙ → Toys.`));
@@ -3452,7 +3481,8 @@
 						"div",
 						{ class: "toy" },
 						h("div", { class: "row" }, h("span", { class: "nm", title: toy.motor ? `Motor ${toy.motor.n} of ${toy.motor.of} in ${toy.name}` : toy.name }, toy.display), toy.battery != null && h("span", { class: "hint", title: "Battery" }, `🔋 ${toy.battery}%`)),
-						toy.vibes.length ? null : h("div", { class: "err" }, "This toy has no vibration motor buttplug.io can drive."),
+						toy.virtual ? h("div", { class: "hint" }, "Pretend toy: nothing is sent anywhere, and only you can drive it. ", h("a", { href: "#", onclick: (e) => (e.preventDefault(), setVirtual(false)) }, "Remove")) : null,
+							toy.vibes.length ? null : h("div", { class: "err" }, "This toy has no vibration motor buttplug.io can drive."),
 						h(
 							"div",
 							{ class: "row" },
@@ -3493,7 +3523,7 @@
 
 		// Every connected toy (one row per motor), with whether it shows on the Toys tab
 		function secToyConfig(out) {
-			if (!toys.size) return out.push(h("div", { class: "hint" }, conn === "connected" ? "No toys connected." : "Connect to see toys."));
+			if (!toys.size) return out.push(h("div", { class: "hint" }, conn === "connected" ? "No toys connected." : "Connect to see toys, or turn on the virtual toy (Connection)."));
 			for (const t of toys.values()) {
 				const note = !t.vibes.length ? "no vibration motor Vibe Link can drive" : t.motor ? `motor ${t.motor.n} of ${t.motor.of}` : "";
 				out.push(
@@ -4003,7 +4033,7 @@
 	function statusText() {
 		if (local.paused) return "Stopped. /vibe resume to let toys follow the game again.";
 		if (conn === "busy") return `Intiface is in use by ${ownerName ? `${ownerName}'s` : "another game"} tab. /vibe here moves it to this tab.`;
-		if (conn !== "connected") return conn === "failed" ? `Not connected to Intiface: ${connError}` : "Not connected to Intiface.";
+		if (conn !== "connected" && !virtualOn()) return conn === "failed" ? `Not connected to Intiface: ${connError}` : "Not connected to Intiface.";
 		if (!toys.size) return scanning ? "Connected, looking for toys…" : "Connected, no toys. /vibe scan to look for them.";
 		return [...toys.values()]
 			.map((t) => {
@@ -4099,6 +4129,7 @@
 
 	// ---------- wiring ----------
 
+	syncVirtual();
 	ui.mount();
 
 	let settingsLoadedFor = null;

@@ -20,6 +20,13 @@ It only reads your own character and only drives toys on your own computer.
 4. A toy follows nothing until you link it: the panel opens when a toy connects so you can pick
    the slot it follows (Hush 2 → Butt), or load a preset. **Test** buzzes it briefly.
 
+### Trying it without a toy
+
+**Try a virtual toy** on the Toys tab (or ⚙ → Connection → **Virtual toy**) adds a pretend toy that needs no
+Intiface. Link it to a slot like a real one and watch its chart and percentage follow your vibrator, the game modes,
+presets and **Play on my toys**. Nothing is sent anywhere, and people you let control your toys aren't shown it, so
+only you can drive it. It stays alongside real toys until you remove it, and the switch is per browser.
+
 ## From the chat room
 
 The 〰 tab is on the dock's rail on every screen, the chat room included; its dot is green with a toy
