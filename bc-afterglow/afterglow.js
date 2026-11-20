@@ -9,7 +9,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "Afterglow", version: "0.8.1" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -587,7 +588,7 @@
 `;
 		function mount() {
 			if (panel) return;
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader), so there's no panel");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no panel");
 			document.head.append(h("style", { id: "ag-style" }, CSS));
 			panel = BCDock.add({ id: "afterglow", title: "Afterglow", icon: "✨", order: 40, version: MOD_INFO.version, width: 220, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => (panel?.isOpen() && lookNow(), render()) });
 			root = panel.body;
