@@ -11,7 +11,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.8", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.8-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);

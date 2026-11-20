@@ -22,7 +22,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Game Fixes", version: "0.2.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
+	const MOD_INFO = { name: "BCT_VibeFix", fullName: "BC Toolkit: Game Fixes", version: "0.2.1-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-fix" };
 	const TAG = "[GameFixes]";
 
 	// Re-running the script (dev reload) replaces the previous instance

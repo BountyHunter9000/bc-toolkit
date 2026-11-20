@@ -11,7 +11,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
+	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.3-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;

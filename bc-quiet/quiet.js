@@ -9,7 +9,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
+	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.2-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
 	const TAG = "[Quiet]";
 	/** @param {number} m */
 	const KEY = (m) => `Quiet.${m}`;

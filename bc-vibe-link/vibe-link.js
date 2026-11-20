@@ -8,7 +8,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
+	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.1-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
