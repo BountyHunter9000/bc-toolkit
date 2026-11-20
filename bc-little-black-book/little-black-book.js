@@ -10,7 +10,7 @@
 	"use strict";
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.5", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.6", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -1507,6 +1507,9 @@
 		HSC: "HSC",
 		BCC: "BCC",
 		MBCFS: "MBCFS",
+		FCM: "FCM",
+		PCM: "PCM",
+		LikoTOOL: "Liko Tool",
 	};
 	const MESSAGE_ADDONS = {
 		BCXMsg: "BCX",
@@ -1521,7 +1524,20 @@
 		HSC_Changed: "HSC",
 		LCPlayerInfo: "LianChat",
 		LCTypingStatus: "LianChat",
+		HypnoMsg: "ECHS", // Erotic Chat Hypnosis Suite's hidden messages (its HIDDEN_TAG)
+		ABCL: "ABCL",
+		Seidr: "Seidr",
+		MoonCE: "MoonCEBC",
+		SlimeBeep: "SlimeBeep",
 	};
+	// Message names that carry more after a fixed start (a version, a sub-type)
+	const MESSAGE_PREFIXES = [
+		[/^KIKILINK\b/, "KikiLink"],
+		[/^HSC_/, "HSC"],
+		[/^BCNekoEnhancer\./, "BCNeko"],
+		[/^PCM_/, "PCM"],
+	];
+	const messageAddon = (key) => MESSAGE_ADDONS[key] || MESSAGE_PREFIXES.find(([re]) => re.test(key))?.[1] || null;
 
 	// From FUSAM's add-on manifest (sidiousious.gitlab.io/bc-addon-loader/manifest.json), checked 2026-11-06:
 	// [id, name, website, repository, description, other names]
@@ -1572,6 +1588,8 @@
 		["Seidr", "Freya’s Seidr", "https://freya-bc.github.io/Freyas-Seidr/", "https://github.com/Freya-BC/Freyas-Seidr", "Simple Plugin for Pulling Left/Right and Cuddle for Cuddle piles. Additional new Actions. A Room Manager and other helpful utility tools", []],
 		["SlimeBeep", "SlimeBeep", "", "https://github.com/Proudkiller0015/slimebeep", "A cute beep messenger: chat with each friend, see who's online and where, beep many friends at once (WaveBeep), group chats with other SlimeBeep users, profi…", []],
 		["GGC", "Galia's Gambling Club (GGC)", "https://galia-bc.github.io/galia.github.io/", "https://github.com/galia-bc/galia.github.io", "Multiplayer games, a bank, player trades, and animated chat-room effects.", []],
+		// Not in FUSAM's list: Liko's own add-on manager, which announces itself in rooms
+		["PCM", "Liko's Plugin Collection Manager (PCM)", "https://awdrrawd.github.io/liko-Plugin-Repository/", "https://github.com/awdrrawd/liko-Plugin-Repository", "Installs and manages Liko's plugins (and some others) from one script.", []],
 		["ECHS", "Erotic Chat Hypnosis Suite (ECHS)", "https://github.com/Dwfreegethub/HypnosisAddon/wiki", "https://github.com/Dwfreegethub/HypnosisAddon", "Interactive hypnosis between players—featuring inductions, spoken suggestions, custom triggers, crafted drinks, and more. Designed to be the most comprehensi…", []],
 	];
 	// Names detection (or bcModSdk) uses that differ from the directory's
@@ -1643,7 +1661,7 @@
 				continue;
 			}
 			const key = content.replace(/:.*$/, "");
-			const name = key === "LikoAEE" ? "Liko AEE" : MESSAGE_ADDONS[key] || `Unknown (${key})`;
+			const name = key === "LikoAEE" ? "Liko AEE" : messageAddon(key) || `Unknown (${key.slice(0, 40)})`;
 			const payload = Array.isArray(dict) ? dict.map((x) => (x && typeof x === "object" ? { ...x, message: parseMaybe(x.message) } : x)) : parseMaybe(dict);
 			note(name, findVersion(payload), "messages", m.at);
 		}
