@@ -109,13 +109,14 @@
     },
     {
       "id": "vf",
-      "name": "Vibe Fix",
+      "name": "Game Fixes",
       "icon": "🔧",
-      "about": "R134 fix: vibrators turn down and off again",
+      "about": "Fixes for R134 bugs: vibrators turn down and off again, picked locks open",
       "path": "bc-vibe-fix/vibe-fix.js",
       "global": "VibeFix",
       "prefix": "vf-v",
       "versions": [
+        "0.2.0",
         "0.1.1",
         "0.1.0"
       ],

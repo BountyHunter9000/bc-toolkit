@@ -15,7 +15,7 @@ one script; see [Installing](#installing))
 | ✨ [Afterglow](bc-afterglow/README.md) | Counts your orgasms, ruined orgasms, resists, denials and edges, the time since your last orgasm, and your records; share them with people your game permissions allow. `/afterglow` |
 | 🔔 [Quiet](bc-quiet/README.md) | Mute or unmute every game notification in one tab with a click on the dock; it stays muted until you turn it back on. `/quiet` |
 | 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` |
-| 🔧 [Vibe Fix](bc-vibe-fix/README.md) | Stopgap for an R134 bug where vibrators never turn down: Off and lower levels (and Escalate starting over) set the intensity you picked again. No settings. |
+| 🔧 [Game Fixes](bc-vibe-fix/README.md) | Stopgaps for bugs in R134 itself: vibrators that never turn down (Off and lower levels, and Escalate starting over, work again), and picked locks that stay locked. No settings. |
 
 The [dock](bc-dock/README.md) comes with BC Toolkit: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
