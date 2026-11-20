@@ -9,7 +9,8 @@
 (async () => {
 	"use strict";
 
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "Little Black Book", version: "1.2.3" };
+	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -1964,7 +1965,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			document.head.append(h("style", { id: "fm-style" }, CSS));
 			if (window.BCDock)
 				dockPanel = BCDock.add({ id: "friend-manager", title: "Black Book", icon: "📓", order: 10, version: MOD_INFO.version, visible: false, onClick: () => (panel ? close() : open()) });
-			else console.warn(TAG, "bc-dock.js isn't loaded (add its @require to the loader); open it with /book");
+			else console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it); open it with /book");
 			renderTab();
 			refreshBadge();
 		}
