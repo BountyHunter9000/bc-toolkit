@@ -70,7 +70,9 @@ latest release unless you choose otherwise: ⚙ starts with **Add-ons**, a menu 
 
 - **Off**: not loaded. Switching an add-on off stops it straight away (its tab and hooks go).
 - **Latest (x.y.z)**: the newest release. When a new one comes out, it's used the next time the game loads, or
-  right away with **Check for updates**.
+  right away with **Check for updates**. In between, the dock looks for new releases every 24 hours. It doesn't
+  swap one in while you play (that could cut off a toy session or a half-typed note): ⚙ gets a green dot, the
+  add-on's line says which version is out, and the button turns into **Update now**.
 - **A version** (v0.8.0, …): stays on that release until you pick something else. Handy when a new release
   misbehaves. An older version may not understand what a newer one saved, so going back is best kept short.
 
@@ -82,6 +84,8 @@ How it works:
   is loaded from its release tag through jsDelivr, so a version
   never changes under you. If the list can't be fetched (offline), the one from last time is used.
 - The add-ons start a couple of seconds after the game's own scripts are ready.
+- In mod lists (WCE, FUSAM and others that show ModSDK mods) they appear as **BC Toolkit: Afterglow**, **BC
+  Toolkit: Quiet** and so on, each with a link to its folder in the repository.
 - If an older one-add-on script (retired) is still installed, that script keeps running its add-on and the menu
   is greyed out with a note. Delete the old script in Tampermonkey to choose here instead.
 - Nothing else changes for the add-ons: each one still unloads its previous copy when a new one starts, which is

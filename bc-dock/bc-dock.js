@@ -8,7 +8,7 @@
 // over, keeping the panels already added. See README.md.
 (() => {
 	"use strict";
-	const VERSION = 14; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on)
+	const VERSION = 15; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -219,7 +219,9 @@
 .bcd-cfg .tk select{font-size:11px;max-width:110px;padding:1px 2px;background:var(--bcd-ctl);color:inherit;border:1px solid var(--bcd-ctl-line);border-radius:4px}
 .bcd-cfg .tk .st:empty{display:none}
 .bcd-cfg .tk .st{grid-column:1/-1;font-size:10px;color:#999;margin:-1px 0 3px 18px}
-.bcd-cfg .tk .st.bad{color:#e88}.bcd-cfg .tk .st.ok{color:#8c8}
+.bcd-cfg .tk .st.bad{color:#e88}.bcd-cfg .tk .st.ok{color:#8c8}.bcd-cfg .tk .st.new{color:#9cf}
+.bcd-tab.cfg.upd{opacity:1}
+.bcd-tab.cfg.upd::after{content:"";position:absolute;top:2px;right:2px;width:7px;height:7px;border-radius:50%;background:#5c8;box-shadow:0 0 4px #5c8}
 .bcd-cfg input[type=color]{width:34px;height:20px;padding:0 1px;border:1px solid var(--bcd-ctl-line);border-radius:4px;background:var(--bcd-ctl);cursor:pointer}
 `;
 
@@ -957,10 +959,12 @@
 	// each: Off, Latest, or a fixed version. The list of add-ons and their versions (toolkit.json) comes from the
 	// repository's main branch; each add-on's file comes from its release tag through jsDelivr, exactly like the
 	// separate scripts' @require lines, so a version never changes under you. Latest moves to a new release when the
-	// game loads, or on "Check for updates". Turned on by this line in that script's body:
+	// game loads, or on "Check for updates". In between, the list is looked at again every 24 hours; a newer release
+// isn't swapped in mid-session (it could cut off a toy session or a half-typed note), but ⚙ gets a green dot and the
+// add-on's line says it's there, until "Update now" or the next reload. Turned on by this line in that script's body:
 	//   window.BCToolkit = { loader: true };
 	// Without it (the separate add-on scripts) none of this runs. listUrl and fileBase ("…/{tag}/") in the same object
-	// point it somewhere else, for testing.
+	// point it somewhere else, and checkMs / tickMs change the 24 h and 10 min, for testing.
 	const TK_LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
 	const TK_FILES = "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@{tag}/";
 	const tkCfg = () => (window.BCToolkit && typeof window.BCToolkit === "object" ? window.BCToolkit : {});
@@ -970,6 +974,10 @@
 	const tk = prev?._tk?.() || { started: false, list: null, listAt: 0, listErr: null, mine: {}, own: {}, busy: {}, err: {}, checking: false };
 	let tkTimer = null;
 	let tkStatusTimer = null;
+	let tkPollTimer = null;
+	const TK_DAY = 24 * 3600 * 1000;
+	const tkEvery = () => (Number(tkCfg().checkMs) > 0 ? Number(tkCfg().checkMs) : TK_DAY);
+	const tkTick = () => (Number(tkCfg().tickMs) > 0 ? Number(tkCfg().tickMs) : 10 * 60 * 1000);
 
 	// Only what the loader needs, checked, so a broken list can't point it at anything but this repository's files
 	function tkClean(raw) {
@@ -1142,6 +1150,15 @@
 			clearInterval(tkTimer);
 			setTimeout(() => !tk.started && window.BCDock === api && tkStart(), 2000);
 		}, 500);
+		// A chain of timeouts, so the interval is read each round (the script's settings arrive after this file runs)
+		clearTimeout(tkPollTimer);
+		const loop = () => {
+			tkPollTimer = setTimeout(() => {
+				if (window.BCDock !== api) return;
+				tkPoll().finally(loop);
+			}, tk.started ? tkTick() : 5000);
+		};
+		loop();
 		// The status lines under the menus change as add-ons start; updated in place so an open menu stays open
 		clearInterval(tkStatusTimer);
 		tkStatusTimer = setInterval(() => {
@@ -1157,8 +1174,40 @@
 	}
 
 	const tkRender = () => {
+		tkMark();
 		if (active === CFG && window.BCDock === api) renderCfg();
 	};
+
+	// Add-ons on Latest that are running an older release than the list's newest
+	const tkUpdates = () =>
+		(tk.list?.addons || []).filter((a) => !tk.own[a.id] && !tk.busy[a.id] && tkPick(a.id) === "latest" && a.versions[0] && tk.mine[a.id] && tk.mine[a.id] !== a.versions[0]);
+
+	// A green dot on ⚙ while updates are waiting
+	function tkMark() {
+		if (window.BCDock !== api) return;
+		const n = tkOn() && tk.started ? tkUpdates().length : 0;
+		cfgTab.classList.toggle("upd", n > 0);
+		cfgTab.title = n ? `Dock settings · ${n === 1 ? "an add-on update is" : `${n} add-on updates are`} ready (⚙ → Add-ons → Update now)` : "Dock settings: opacity, side";
+	}
+
+	// Every 24 h since the list was last fetched (on load, Check for updates, or here), fetch it again and only point out
+	// what's new. Ticks every 10 min, so a sleeping laptop or a throttled background tab catches up soon after; a failed
+	// fetch is tried again an hour later.
+	async function tkPoll() {
+		if (!tk.started || tk.checking || window.BCDock !== api || !tkOn()) return tkMark();
+		const now = Date.now();
+		if (now - (tk.listAt || 0) < tkEvery() || now - (tk.triedAt || 0) < Math.min(3600 * 1000, tkEvery())) return tkMark();
+		tk.triedAt = now;
+		tk.checking = true;
+		try {
+			await tkFetch();
+		} finally {
+			tk.checking = false;
+		}
+		const ups = tkUpdates();
+		if (ups.length) console.log("[BCDock]", `updates ready: ${ups.map((a) => `${a.name} v${a.versions[0]}`).join(", ")} (⚙ → Add-ons → Update now, or reload the game)`);
+		tkRender();
+	}
 
 	function tkStatus(a) {
 		if (tk.own[a.id]) return ["", `v${tk.own[a.id]} runs from its own Tampermonkey script. Turn that script off to choose here.`];
@@ -1169,6 +1218,7 @@
 		if (!want) return run ? ["bad", `v${run} still running; reload the game to stop it`] : ["", ""];
 		if (run === want) return ["ok", `v${run} running`];
 		if (tk.mine[a.id] === want) return ["", `v${want} starting…`];
+		if (tkPick(a.id) === "latest" && tk.mine[a.id]) return ["new", `v${want} is out (running v${run || tk.mine[a.id]}). Update now, or it's used when the game next loads.`];
 		if (!tk.started) return ["", ""];
 		return ["", `v${want} not loaded yet`];
 	}
@@ -1205,8 +1255,8 @@
 		});
 		return [
 			el("div", { class: "tk" }, rows),
-			el("div", { class: "row" }, el("span", { class: "hint", style: "flex:1" }, tkAge()), el("button", { onclick: tkCheck, disabled: tk.checking }, tk.checking ? "Checking…" : "Check for updates")),
-			el("div", { class: "hint" }, "Changes apply right away. Latest moves to new releases each time the game loads. An older version may not read what a newer one saved."),
+			el("div", { class: "row" }, el("span", { class: "hint", style: "flex:1" }, tkAge()), el("button", { onclick: tkCheck, disabled: tk.checking }, tk.checking ? "Checking…" : tkUpdates().length ? "Update now" : "Check for updates")),
+			el("div", { class: "hint" }, "Changes apply right away. Latest moves to new releases each time the game loads; in between, new ones are looked for every 24 hours and shown here (and as a dot on ⚙) without interrupting you. An older version may not read what a newer one saved."),
 		];
 	}
 
@@ -1263,6 +1313,7 @@
 		_takeover() {
 			clearInterval(tkTimer);
 			clearInterval(tkStatusTimer);
+			clearTimeout(tkPollTimer);
 			const out = {
 				active: active === CFG ? null : active,
 				panels: [...panels.values()].map((p) => ({
