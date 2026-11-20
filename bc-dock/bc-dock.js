@@ -19,6 +19,15 @@
 	const MIN_W = 220;
 	const TAB = 44; // tab size in px
 
+	/**
+	 * An element with attributes (class, on<event> listeners, the rest as attributes; null/false left out) and children
+	 * (nodes, text, arrays of them; null/false left out)
+	 * @template {keyof HTMLElementTagNameMap} K
+	 * @param {K} tag
+	 * @param {Record<string, any>} [attrs]
+	 * @param {...any} children
+	 * @returns {HTMLElementTagNameMap[K]}
+	 */
 	const el = (tag, attrs = {}, ...children) => {
 		const e = document.createElement(tag);
 		for (const [k, v] of Object.entries(attrs)) {
@@ -30,15 +39,29 @@
 		for (const kid of children.flat()) if (kid != null && kid !== false) e.append(kid instanceof Node ? kid : String(kid));
 		return e;
 	};
+	/**
+	 * @typedef {{ x: number, y: number, open: boolean }} DockFloat a floating window: where, and whether it's open
+	 * @typedef {{ preset: string, bg?: string, accent?: string, glow?: string }} DockTheme
+	 * @typedef {{ id: string, name: string, icon: string, about: string, path: string, global: string, prefix: string, versions: string[], beta: string[] }} TkAddon
+	 * @typedef {{ format: "BCToolkit", addons: TkAddon[] }} TkList
+	 * @typedef {{ side: string, y: number | null, x: number | null, opacity: number, widths: Record<string, number>, active: string | null, float: Record<string, DockFloat>, theme: DockTheme, titleName?: boolean, lockDock?: boolean, devWatch?: boolean, tk?: Record<string, string>, tkBeta?: boolean, tkList?: TkList & { at?: number } }} DockState
+	 * @typedef {{ spec: BCDockPanelSpec & { order: number }, tab: HTMLDivElement, body: HTMLElement, actions: HTMLElement, sum: string, visible: boolean }} DockPanelBase what the flyout needs (⚙ is one too)
+	 * @typedef {{ title: HTMLSpanElement, ver: HTMLSpanElement, sum: HTMLSpanElement, body: HTMLDivElement, sizer: HTMLDivElement, dockBtn: HTMLButtonElement, head: HTMLDivElement, el: HTMLDivElement }} DockWin
+	 * @typedef {DockPanelBase & { badge: string | null, dot: HTMLSpanElement, badgeEl: HTMLSpanElement, icon: HTMLSpanElement, win: DockWin | null, setTitle(t: string): void, setSummary(t: string | null | undefined): void, setBadge(b: string | number | null | undefined): void, setDot(d: string | null | undefined): void, setVisible(v: boolean): void }} DockPanel
+	 * @typedef {{ spec: BCDockPanelSpec, visible?: boolean, badge?: string | null, summary?: string, dotClass?: string, actions?: HTMLElement, body?: HTMLElement }} DockAdopted a panel handed over by an older dock
+	 */
 	// The same skipping for replaceChildren(), which would write a left-out null as the text "null"
+	/** @param {...any} xs */
 	const kids = (...xs) => xs.flat().filter((x) => x != null && x !== false);
 
 	// ---------- saved state (this browser only) ----------
+	/** @type {DockState} */
 	let state = { side: "left", y: null, x: null, opacity: 0.94, widths: {}, active: null, float: {}, theme: { preset: "amethyst" } };
 	try {
-		const s = JSON.parse(localStorage.getItem(STORE) || "null");
+		const s = /** @type {Partial<DockState> | null} */ (JSON.parse(localStorage.getItem(STORE) || "null"));
 		if (s && typeof s === "object") state = { ...state, ...s, widths: { ...(s.widths || {}) } };
 		// Floating windows: panel id -> { x, y, open }
+		/** @type {Record<string, DockFloat>} */
 		const fl = {};
 		for (const [id, v] of Object.entries(s?.float && typeof s.float === "object" ? s.float : {}))
 			if (v && Number.isFinite(v.x) && Number.isFinite(v.y)) fl[id] = { x: v.x, y: v.y, open: !!v.open };
@@ -49,12 +72,14 @@
 	const SIDES = ["left", "right", "top", "bottom"];
 	if (!SIDES.includes(state.side)) state.side = "left";
 	const horizontal = () => state.side === "top" || state.side === "bottom";
+	/** @param {unknown} v */
 	const clampOpacity = (v) => Math.min(1, Math.max(0.3, Number(v) || 0.94));
 	state.opacity = clampOpacity(state.opacity);
 
 	// ---------- themes ----------
 	// A theme is three colors: background, accent (borders, active tab, sliders) and glow (charts, highlights). Every other
 	// shade the dock and the add-ons use is mixed from those, and published as CSS variables (--bcd-*) on the page root.
+	/** @type {Record<string, { name: string, bg: string, accent: string, glow: string }>} */
 	const THEMES = {
 		amethyst: { name: "Amethyst", bg: "#1b1622", accent: "#c9a8ff", glow: "#e070a0" },
 		midnight: { name: "Midnight", bg: "#121826", accent: "#7fb2ff", glow: "#4dd0e1" },
@@ -64,10 +89,22 @@
 		graphite: { name: "Graphite", bg: "#18181b", accent: "#c8c8d0", glow: "#9aa0ff" },
 		royal: { name: "Royal", bg: "#101a33", accent: "#e8c15a", glow: "#4f9dff" }, // navy blue and gold
 	};
+	/**
+	 * @param {unknown} v
+	 * @returns {v is string}
+	 */
 	const isHex = (v) => typeof v === "string" && /^#[0-9a-f]{6}$/i.test(v);
+	/** @param {string} hex */
 	const rgbOf = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+	/** @param {number[]} rgb */
 	const hexOf = (rgb) => "#" + rgb.map((c) => Math.round(Math.min(255, Math.max(0, c))).toString(16).padStart(2, "0")).join("");
+	/**
+	 * @param {string} a
+	 * @param {string} b
+	 * @param {number} t 0 (all a) .. 1 (all b)
+	 */
 	const mix = (a, b, t) => hexOf(rgbOf(a).map((c, i) => c + (rgbOf(b)[i] - c) * t));
+	/** @param {string} hex */
 	const lum = (hex) => rgbOf(hex).reduce((s, c, i) => s + (c / 255) * [0.2126, 0.7152, 0.0722][i], 0);
 	function themeColors() {
 		const t = state.theme || {};
@@ -113,8 +150,11 @@
 	// any markers add-ons ask for in front of it (Quiet's 🔕). The game writes the title itself (NotificationTitleUpdate,
 	// as "(3) Bondage Club"); the dock watches the <title> and adds the name right after each write. Watching isn't
 	// slowed in a background tab, the way timers are, and needs no hook in the game. Off: ⚙ → Character name in the tab.
+	/** @type {Map<string, string>} */
 	const titleMarks = new Map(prev?._titleMarks?.() || []); // add-on id -> marker text
+	/** @type {string | null} */
 	let titleBase = null; // the title as the game (or another mod) last wrote it, without our additions
+	/** @type {string | null} */
 	let titleSet = null; // the title we last wrote
 	const titleOn = () => state.titleName !== false;
 	function titleName() {
@@ -126,8 +166,9 @@
 			return String(Player?.Name || "").trim();
 		}
 	}
+	/** @param {string} base */
 	function wantTitle(base) {
-		const m = /^(\(\d+\)\s*)?([\s\S]*)$/.exec(base);
+		const m = /^(\(\d+\)\s*)?([\s\S]*)$/.exec(base) || ["", "", base];
 		const marks = [...titleMarks.values()].filter(Boolean).join("");
 		const name = titleOn() ? titleName() : "";
 		return `${m[1] || ""}${marks ? `${marks} ` : ""}${name ? `${name} · ` : ""}${m[2]}`;
@@ -147,6 +188,7 @@
 		applyTitle();
 	}
 	// Logging in, out or as someone else changes the name without a title write: checked every couple of seconds
+	/** @type {string | null} */
 	let titleWho = null;
 	const titleTimer = setInterval(() => {
 		const who = `${titleOn()}|${titleName()}`;
@@ -160,6 +202,10 @@
 		clearInterval(titleTimer);
 		if (titleBase != null && document.title === titleSet) document.title = titleBase; // hand back the game's own title
 	}
+	/**
+	 * @param {string} id
+	 * @param {string | null} text
+	 */
 	function setTitleMark(id, text) {
 		if (typeof id !== "string" || !id) return;
 		if (text == null || text === "") titleMarks.delete(id);
@@ -274,14 +320,16 @@
 	// Keep typing and wheel scrolling inside the dock away from the game
 	for (const node of [rail, fly]) for (const ev of ["keydown", "keyup", "keypress", "wheel"]) node.addEventListener(ev, (e) => e.stopPropagation());
 
-	/** @type {Map<string, any>} */
+	/** @type {Map<string, DockPanel>} */
 	const panels = new Map();
+	/** @type {string | null} */
 	let active = null; // id of the panel shown in the flyout
 
 	// The dock's own settings, shown in the flyout from the small ⚙ tab
 	const CFG = "__dock";
 	const cfgTab = el("div", { class: "bcd-tab cfg", title: "Dock settings: opacity, side" }, "⚙");
 	const cfgBody = el("div", { class: "bcd-body bcd-cfg" });
+	/** @type {DockPanelBase} */
 	const cfgPanel = { spec: { id: CFG, title: "Dock settings", icon: "⚙", order: 1e9, version: `v${VERSION}`, width: 230, minWidth: 200, maxWidth: 320, alignStart: true }, tab: cfgTab, body: cfgBody, actions: el("span"), sum: "", visible: true };
 	attachTabEvents(cfgPanel);
 
@@ -302,7 +350,7 @@
 					step: 5,
 					value: pct,
 					style: "flex:1",
-					oninput: (e) => {
+					oninput: (/** @type {Event & { target: HTMLInputElement }} */ e) => {
 						setOpacity(+e.target.value / 100);
 						out.textContent = `${e.target.value}%`;
 					},
@@ -323,7 +371,7 @@
 			el(
 				"label",
 				{ class: "row", title: "Panels always open beside the rail, and their title bars can't be dragged away" },
-				el("input", { type: "checkbox", checked: !!state.lockDock, onchange: (e) => setLockDock(e.target.checked) }),
+				el("input", { type: "checkbox", checked: !!state.lockDock, onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => setLockDock(e.target.checked) }),
 				"Keep panels on the rail"
 			),
 			el(
@@ -344,7 +392,7 @@
 				el("input", {
 					type: "checkbox",
 					checked: titleOn(),
-					onchange: (e) => {
+					onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => {
 						state.titleName = e.target.checked;
 						save();
 						titleWho = null;
@@ -374,13 +422,16 @@
 	function themeSection() {
 		const t = state.theme || {};
 		const cur = themeColors();
+		/** @param {{ bg: string, accent: string, glow: string }} th */
 		const swatch = (th) => el("span", { class: "sw" }, [th.bg, th.accent, th.glow].map((c) => el("i", { style: `background:${c}` })));
+		/** @param {string} preset */
 		const pick = (preset) => {
 			state.theme = preset === "custom" ? { preset, bg: t.bg || hexOf(cur["--bcd-bg"].split(" ").map(Number)), accent: t.accent || cur["--bcd-accent"], glow: t.glow || cur["--bcd-glow"] } : { ...t, preset };
 			save();
 			applyTheme();
 			renderCfg();
 		};
+		/** @type {HTMLElement[]} */
 		const out = [
 			el("h4", {}, "Theme"),
 			el(
@@ -391,6 +442,11 @@
 			),
 		];
 		if (t.preset === "custom") {
+			/**
+			 * @param {"bg" | "accent" | "glow"} key
+			 * @param {string} label
+			 * @param {string} tip
+			 */
 			const color = (key, label, tip) =>
 				el(
 					"label",
@@ -398,7 +454,7 @@
 					el("input", {
 						type: "color",
 						value: isHex(t[key]) ? t[key] : key === "bg" ? hexOf(cur["--bcd-bg"].split(" ").map(Number)) : cur[`--bcd-${key}`],
-						oninput: (e) => {
+						oninput: (/** @type {Event & { target: HTMLInputElement }} */ e) => {
 							state.theme = { ...state.theme, [key]: e.target.value };
 							applyTheme();
 						},
@@ -416,12 +472,14 @@
 		return out;
 	}
 
+	/** @param {unknown} v */
 	function setOpacity(v) {
 		state.opacity = clampOpacity(v);
 		document.documentElement.style.setProperty("--bcd-opacity", String(state.opacity));
 		save();
 	}
 
+	/** @param {string} side */
 	function setSide(side) {
 		state.side = SIDES.includes(side) ? side : "left";
 		save();
@@ -429,8 +487,13 @@
 		if (active === CFG) renderCfg();
 	}
 
+	/**
+	 * @param {BCDockPanelSpec} spec
+	 * @param {DockAdopted} [adopted]
+	 * @returns {DockPanel}
+	 */
 	function makePanel(spec, adopted) {
-		const p = {
+		const p = /** @type {DockPanel} */ ({
 			spec: { order: 50, ...spec },
 			visible: adopted?.visible ?? spec.visible ?? true,
 			badge: adopted?.badge ?? null,
@@ -439,18 +502,19 @@
 			badgeEl: el("span", { class: "bcd-badge" }),
 			actions: adopted?.actions || el("span", { class: "bcd-actions" }),
 			body: adopted?.body || el("div", { class: "bcd-body" }),
-		};
+			win: null,
+		});
 		p.icon = el("span", {});
 		p.tab = el("div", { class: "bcd-tab", "data-id": spec.id }, p.icon, p.badgeEl, p.dot);
 		attachTabEvents(p);
-		p.setTitle = (t) => {
+		p.setTitle = (/** @type {string} */ t) => {
 			p.spec.title = t;
 			p.icon.textContent = p.spec.icon || t.slice(0, 2);
 			updateTip(p);
 			if (active === p.spec.id) setFlyTitle(p);
 			if (p.win) winHead(p);
 		};
-		p.setSummary = (t) => {
+		p.setSummary = (/** @type {string | null | undefined} */ t) => {
 			p.sum = t == null ? "" : String(t);
 			updateTip(p);
 			if (active === p.spec.id && flySum.textContent !== p.sum) {
@@ -462,14 +526,14 @@
 				p.win.sum.title = p.sum;
 			}
 		};
-		p.setBadge = (b) => {
+		p.setBadge = (/** @type {string | number | null | undefined} */ b) => {
 			b = b == null || b === 0 || b === "" ? null : String(b);
 			if (p.badge === b) return;
 			p.badge = b;
 			p.badgeEl.textContent = b || "";
 		};
-		p.setDot = (d) => (p.dot.className = `bcd-dot ${d || "none"}`);
-		p.setVisible = (v) => {
+		p.setDot = (/** @type {string | null | undefined} */ d) => (p.dot.className = `bcd-dot ${d || "none"}`);
+		p.setVisible = (/** @type {boolean} */ v) => {
 			v = !!v;
 			if (p.visible === v) return;
 			p.visible = v;
@@ -493,23 +557,27 @@
 	}
 
 	// "0.5.2" → "v0.5.2"; anything else (e.g. "v3") as given
+	/** @param {DockPanelBase} p */
 	const verText = (p) => {
 		const v = p.spec.version == null ? "" : String(p.spec.version).trim();
 		return /^\d/.test(v) ? `v${v}` : v;
 	};
 
 	// "⚡ Quick Actions": on a narrow panel only the icon shows (the title and version are in the tooltip)
+	/** @param {DockPanelBase} p */
 	function setFlyTitle(p) {
 		flyTitle.replaceChildren(p.spec.icon ? el("span", {}, p.spec.icon) : "", el("span", { class: "bcd-tt" }, p.spec.title));
 		flyTitle.title = `${p.spec.title}${verText(p) ? ` ${verText(p)}` : ""}`;
 	}
 
+	/** @param {DockPanelBase} p */
 	function updateTip(p) {
 		const v = verText(p);
 		p.tab.title = `${p.spec.title}${v ? ` ${v}` : ""}${p.sum ? ` · ${p.sum}` : ""}${p.spec.onClick ? "" : "\nClick to open or close · drag to move the rail\nDrag a panel's title bar to float it anywhere"}`;
 	}
 
 	// A press that doesn't move is a click; moving drags the whole rail (along the edge, or across to the other side)
+	/** @param {DockPanelBase} p */
 	function attachTabEvents(p) {
 		p.tab.addEventListener("pointerdown", (e) => {
 			if (e.button !== 0) return;
@@ -524,10 +592,11 @@
 			} catch {
 				// already done or gone: nothing to undo
 			}
-			const move = (ev) => {
+			const move = (/** @type {PointerEvent} */ ev) => {
 				if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 6) return;
 				moved = true;
 				// Snap to whichever edge the pointer is nearest, sliding along it
+				/** @type {Record<string, number>} */
 				const d = { left: ev.clientX, right: innerWidth - ev.clientX, top: ev.clientY, bottom: innerHeight - ev.clientY };
 				state.side = SIDES.reduce((a, b) => (d[b] < d[a] ? b : a));
 				if (horizontal()) state.x = ev.clientX - dx;
@@ -551,8 +620,9 @@
 						console.warn("[BCDock]", p.spec.id, "click failed", err);
 					}
 				} else if (isFloating(p.spec.id)) {
-					if (p.win) closeFloat(p.spec.id);
-					else if (p.visible) showFloat(p);
+					const fp = panels.get(p.spec.id);
+					if (fp?.win) closeFloat(p.spec.id);
+					else if (fp?.visible) showFloat(fp);
 				} else setActive(active === p.spec.id ? null : p.spec.id);
 			};
 			p.tab.addEventListener("pointermove", move);
@@ -561,13 +631,15 @@
 		});
 	}
 
-	const panelOf = (id) => (id === CFG ? cfgPanel : panels.get(id));
+	/** @param {string | null} id */
+	const panelOf = (id) => (id === CFG ? cfgPanel : id == null ? undefined : panels.get(id));
 
+	/** @param {string | null} id */
 	function setActive(id) {
 		if (id != null && !panelOf(id)) id = null;
 		if (id != null && isFloating(id)) {
 			const fp = panels.get(id);
-			if (fp.visible && !fp.win) showFloat(fp);
+			if (fp?.visible && !fp.win) showFloat(fp);
 			return;
 		}
 		if (id === active) return;
@@ -599,6 +671,7 @@
 
 	// The header's action slot shows the active panel's own actions element
 	let actionsSlot = flyActions;
+	/** @param {HTMLElement} node */
 	function swapActions(node) {
 		if (actionsSlot === node) return;
 		if (actionsSlot.isConnected) actionsSlot.replaceWith(node);
@@ -606,6 +679,10 @@
 		node.classList.add("bcd-actions");
 	}
 
+	/**
+	 * @param {DockPanelBase} p
+	 * @param {boolean} open
+	 */
 	function notifyToggle(p, open) {
 		try {
 			p.spec.onToggle?.(open);
@@ -616,6 +693,10 @@
 
 	// ---------- placement ----------
 	// A panel may narrow the allowed widths (Quick Actions stays a slim column)
+	/**
+	 * @param {DockPanelBase | undefined} p
+	 * @param {number} w
+	 */
 	function clampW(p, w) {
 		const min = p?.spec.minWidth ?? MIN_W;
 		const max = Math.max(min, Math.min(innerWidth * 0.7, p?.spec.maxWidth ?? Infinity));
@@ -642,7 +723,7 @@
 		for (const fp of panels.values()) if (fp.win) placeFloat(fp);
 		if (fly.classList.contains("closed")) return;
 		const p = panelOf(active);
-		const w = clampW(p, state.widths[active] || p?.spec.width || DEFAULT_W);
+		const w = clampW(p, (active && state.widths[active]) || p?.spec.width || DEFAULT_W);
 		fly.className = `${state.side}${w < 250 ? " narrow" : ""}`;
 		fly.style.width = `${w}px`;
 		const rail2 = rail.getBoundingClientRect();
@@ -681,7 +762,7 @@
 		const startW = fly.offsetWidth;
 		const dir = state.side === "right" ? -1 : 1;
 		const id = active;
-		const move = (ev) => {
+		const move = (/** @type {PointerEvent} */ ev) => {
 			state.widths[id] = clampW(panelOf(id), startW + dir * (ev.clientX - startX));
 			place();
 		};
@@ -700,31 +781,39 @@
 	// bar puts it back on the rail. Which panels float, where, and whether they were open is remembered. Little Black
 	// Book (its own big window) and ⚙ stay as they are.
 	let zTop = 10000;
+	/** @param {HTMLElement} node */
 	const raise = (node) => (node.style.zIndex = String(++zTop));
-	const isFloating = (id) => id !== CFG && !state.lockDock && !!state.float[id] && !!panels.get(id) && !panels.get(id).spec.onClick;
+	/** @param {string} id */
+	const isFloating = (id) => id !== CFG && !state.lockDock && !!state.float[id] && !!panels.get(id) && !panels.get(id)?.spec.onClick;
 
 	// A press that moves a few pixels becomes a drag (presses on buttons and fields are left to them)
+	/**
+	 * @template C
+	 * @param {HTMLElement} node
+	 * @param {{ start: (sx: number, sy: number) => C | null, move: (ctx: C, ev: PointerEvent) => void, end?: (ctx: C) => void }} h
+	 */
 	function onDrag(node, h) {
 		node.addEventListener("pointerdown", (e) => {
-			if (e.button !== 0 || e.target.closest("button,input,select,textarea,a,label")) return;
+			if (e.button !== 0 || /** @type {HTMLElement} */ (e.target).closest("button,input,select,textarea,a,label")) return;
 			const sx = e.clientX;
 			const sy = e.clientY;
+			/** @type {C | "no" | null} */
 			let ctx = null;
-			const move = (ev) => {
+			const move = (/** @type {PointerEvent} */ ev) => {
 				if (!ctx) {
 					if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 6) return;
-					ctx = h.start(sx, sy) || "no";
+					ctx = h.start(sx, sy) ?? "no";
 				}
 				if (ctx !== "no") {
 					ev.preventDefault();
-					h.move(ctx, ev);
+					h.move(/** @type {C} */ (ctx), ev);
 				}
 			};
 			const up = () => {
 				removeEventListener("pointermove", move);
 				removeEventListener("pointerup", up);
 				removeEventListener("pointercancel", up);
-				if (ctx && ctx !== "no") h.end?.(ctx);
+				if (ctx != null && ctx !== "no") h.end?.(ctx);
 			};
 			addEventListener("pointermove", move);
 			addEventListener("pointerup", up);
@@ -732,7 +821,9 @@
 		});
 	}
 
+	/** @param {DockPanel} p */
 	function winHead(p) {
+		if (!p.win) return;
 		const w = p.win;
 		w.title.replaceChildren(p.spec.icon ? el("span", {}, p.spec.icon) : "", el("span", { class: "bcd-tt" }, p.spec.title));
 		w.title.title = `${p.spec.title}${verText(p) ? ` ${verText(p)}` : ""}`;
@@ -740,16 +831,20 @@
 		w.sum.textContent = w.sum.title = p.sum || "";
 	}
 
+	/**
+	 * @param {DockPanel} p
+	 * @returns {DockWin}
+	 */
 	function makeWin(p) {
 		const id = p.spec.id;
-		const w = {
+		const w = /** @type {DockWin} */ ({
 			title: el("span", { class: "bcd-title" }),
 			ver: el("span", { class: "bcd-ver" }),
 			sum: el("span", { class: "bcd-sum" }),
 			body: el("div", { class: "bcd-bodywrap" }),
 			sizer: el("div", { class: "bcd-sizer", title: "Drag to change the width" }),
 			dockBtn: el("button", { class: "bcd-ico", title: "Put it back on the rail", onclick: () => dockPanel(id) }, "⇤"),
-		};
+		});
 		w.head = el("div", { class: "bcd-head", title: "Drag to move" }, w.title, w.ver, w.sum, w.dockBtn, el("button", { class: "bcd-ico", title: "Close (its tab opens it again)", onclick: () => closeFloat(id) }, "✕"));
 		w.el = el("div", { class: "bcd-float", "data-id": id }, w.head, w.body, w.sizer);
 		for (const ev of ["keydown", "keyup", "keypress", "wheel"]) w.el.addEventListener(ev, (e) => e.stopPropagation());
@@ -770,6 +865,10 @@
 		return w;
 	}
 
+	/**
+	 * @param {{ id: string, dx: number, dy: number }} c
+	 * @param {PointerEvent} ev
+	 */
 	function moveFloat(c, ev) {
 		const f = state.float[c.id];
 		const p = panels.get(c.id);
@@ -780,6 +879,7 @@
 	}
 
 	// Kept on screen: the title bar always stays reachable
+	/** @param {DockPanel} p */
 	function placeFloat(p) {
 		const f = state.float[p.spec.id];
 		if (!f || !p.win) return;
@@ -792,6 +892,10 @@
 		p.win.el.style.top = `${f.y}px`;
 	}
 
+	/**
+	 * @param {DockPanel} p
+	 * @param {boolean} [notify] tell the add-on it opened
+	 */
 	function showFloat(p, notify = true) {
 		const id = p.spec.id;
 		if (!state.float[id]) return;
@@ -812,6 +916,7 @@
 	}
 
 	// The window goes; the body and actions stay with the panel for wherever it shows next
+	/** @param {DockPanel} p */
 	function dropWin(p) {
 		if (!p.win) return;
 		p.win.el.remove();
@@ -819,6 +924,7 @@
 		p.tab.classList.remove("act");
 	}
 
+	/** @param {string} id */
 	function closeFloat(id) {
 		const p = panels.get(id);
 		if (!p?.win) return;
@@ -829,6 +935,11 @@
 	}
 
 	// Off the rail: from the flyout (dragging its title bar) or straight into a window
+	/**
+	 * @param {string} id
+	 * @param {number} x
+	 * @param {number} y
+	 */
 	function floatPanel(id, x, y) {
 		const p = panels.get(id);
 		if (!p || p.spec.onClick) return false;
@@ -849,6 +960,10 @@
 	}
 
 	// Back on the rail; an open window opens there instead
+	/**
+	 * @param {string} id
+	 * @param {boolean} [andOpen] an open window opens on the rail instead
+	 */
 	function dockPanel(id, andOpen = true) {
 		const p = panels.get(id);
 		const was = !!p?.win;
@@ -866,6 +981,7 @@
 		save();
 		if (active === CFG) renderCfg();
 	}
+	/** @param {boolean} on */
 	function setLockDock(on) {
 		state.lockDock = !!on;
 		document.documentElement.classList.toggle("bcd-lock", state.lockDock);
@@ -875,7 +991,7 @@
 	}
 
 	// Dragging the docked flyout's title bar floats the panel in it
-	onDrag(fly.querySelector(".bcd-head"), {
+	onDrag(/** @type {HTMLElement} */ (fly.querySelector(".bcd-head")), {
 		start: (sx, sy) => {
 			if (!active || active === CFG || state.lockDock) return null;
 			const r = fly.getBoundingClientRect();
@@ -902,6 +1018,7 @@
 	const POPUP_BAND = 0.07; // top 7% of the canvas (the old beep box is 50 of 1000 game units tall)
 	/** @returns {{ top: number, bottom: number, left: number, right: number }[]} */
 	function popupRects() {
+		/** @type {{ top: number, bottom: number, left: number, right: number }[]} */
 		const out = [...document.querySelectorAll(".toast-container .toast")].map((t) => t.getBoundingClientRect()).filter((r) => r.width > 0 && r.height > 0);
 		try {
 			const beep = /** @type {any} */ (window).ServerBeep;
@@ -915,7 +1032,7 @@
 		return out;
 	}
 	/**
-	 * @param {DOMRect} r
+	 * @param {{ top: number, bottom: number, left: number, right: number, width: number }} r
 	 * @param {{ top: number, bottom: number, left: number, right: number }} band
 	 */
 	function overlapsBand(r, band) {
@@ -925,12 +1042,13 @@
 		let yieldNow = false;
 		const popups = popupRects();
 		if (popups.length) {
-			const mine = [rail, ...(fly.classList.contains("closed") ? [] : [fly]), ...[...panels.values()].filter((fp) => fp.win).map((fp) => fp.win.el)].map((n) => n.getBoundingClientRect());
+			const mine = [rail, ...(fly.classList.contains("closed") ? [] : [fly]), ...[...panels.values()].flatMap((fp) => (fp.win ? [fp.win.el] : []))].map((n) => n.getBoundingClientRect());
 			yieldNow = mine.some((r) => popups.some((band) => overlapsBand(r, band)));
 		}
 		if (yieldNow !== document.documentElement.classList.contains("bcd-yield")) document.documentElement.classList.toggle("bcd-yield", yieldNow);
 	}, 250);
 
+	/** @param {DockPanel} p */
 	function insertSorted(p) {
 		const after = [...panels.values()].filter((q) => q !== p && q.tab.isConnected).sort((a, b) => a.spec.order - b.spec.order).find((q) => q.spec.order > p.spec.order);
 		rail.insertBefore(p.tab, after ? after.tab : cfgTab);
@@ -938,11 +1056,15 @@
 
 	// ---------- handles ----------
 	// Handles find their panel through window.BCDock on every call, so they survive a newer dock taking over.
+	/**
+	 * @param {string} id
+	 * @returns {BCDockHandle}
+	 */
 	function handleFor(id) {
 		const cur = () => window.BCDock?._panels?.get(id);
 		const call =
-			(m) =>
-				(...a) =>
+			(/** @type {"setTitle" | "setSummary" | "setBadge" | "setDot" | "setVisible"} */ m) =>
+				(/** @type {any[]} */ ...a) =>
 					cur()?.[m]?.(...a);
 		return {
 			id,
@@ -965,6 +1087,7 @@
 		};
 	}
 
+	/** @param {BCDockPanelSpec} spec */
 	function add(spec) {
 		if (!spec || typeof spec.id !== "string" || !spec.id || spec.id === CFG) throw new Error("BCDock.add needs an id");
 		if (panels.has(spec.id)) remove(spec.id); // an add-on reloading itself
@@ -979,6 +1102,7 @@
 		return handleFor(spec.id);
 	}
 
+	/** @param {string} id */
 	function remove(id) {
 		const p = panels.get(id);
 		if (!p) return;
@@ -995,6 +1119,10 @@
 		layoutSoon();
 	}
 
+	/**
+	 * @param {string} id
+	 * @param {boolean} open
+	 */
 	function setOpen(id, open) {
 		const p = panels.get(id);
 		if (!p || p.spec.onClick) return;
@@ -1015,6 +1143,7 @@
 	// the choice is kept in this site's IndexedDB. Each add-on removes its previous copy when it runs again,
 	// so running the file's new text is the whole reload. A file with a syntax error never starts, so the
 	// previous copy keeps running.
+	/** @type {Record<string, { dir: string, file: string, label: string }>} */
 	const ADDONS = {
 		dock: { dir: "bc-dock", file: "bc-dock.js", label: "Dock" },
 		book: { dir: "bc-little-black-book", file: "little-black-book.js", label: "Little Black Book" },
@@ -1033,8 +1162,14 @@
 	const devCfg = () => (window.BCDockDev && typeof window.BCDockDev === "object" ? window.BCDockDev : {});
 	const devOn = () => devCfg().reload === true;
 	const watchAllowed = () => devOn() && devCfg().watch === true;
-	const dev = { root: prev?._devRoot?.() || null, known: prev?._devKnown?.() || null, busy: false, watchTimer: null, cmdTimer: null, cmd: null };
+	/** @type {{ root: any, known: Record<string, number> | null, busy: boolean, watchTimer: ReturnType<typeof setInterval> | undefined, cmdTimer: ReturnType<typeof setInterval> | undefined, cmd: ICommand | null }} */
+	const dev = { root: prev?._devRoot?.() || null, known: prev?._devKnown?.() || null, busy: false, watchTimer: undefined, cmdTimer: undefined, cmd: null };
 
+	/**
+	 * @param {IDBTransactionMode} mode
+	 * @param {(store: IDBObjectStore) => IDBRequest | void} fn
+	 * @returns {Promise<any>}
+	 */
 	function kv(mode, fn) {
 		return new Promise((resolve, reject) => {
 			const open = indexedDB.open("BCDock", 1);
@@ -1050,12 +1185,14 @@
 		});
 	}
 
+	/** @param {string} msg */
 	function devSay(msg) {
 		if (typeof CurrentScreen !== "undefined" && CurrentScreen === "ChatRoom" && typeof ChatRoomSendLocal === "function") ChatRoomSendLocal(`🔧 ${msg}`, 15000);
 		console.log("[BCDock]", msg);
 	}
 
 	// The chosen folder, if Chrome still lets us read it (asking needs a click or a typed command)
+	/** @param {boolean} ask */
 	async function devRoot(ask) {
 		if (!dev.root) dev.root = await kv("readonly", (s) => s.get("root")).catch(() => null);
 		if (typeof dev.root?.queryPermission !== "function") return (dev.root = null), { root: null, why: "none" };
@@ -1064,12 +1201,18 @@
 		return perm === "granted" ? { root: dev.root } : { root: null, why: "permission" };
 	}
 
+	/**
+	 * @param {any} root the folder (FileSystemDirectoryHandle)
+	 * @param {string} key
+	 */
 	async function devFile(root, key) {
 		const a = ADDONS[key];
 		return (await (await root.getDirectoryHandle(a.dir)).getFileHandle(a.file)).getFile();
 	}
 
+	/** @param {any} root */
 	async function devTimes(root) {
+		/** @type {Record<string, number>} */
 		const out = {};
 		for (const k of DEV_ORDER) {
 			try {
@@ -1083,25 +1226,32 @@
 
 	async function pickFolder() {
 		if (!devOn()) return;
-		if (typeof showDirectoryPicker !== "function") return devSay("This browser can't share a folder with a page; use Chrome or Edge.");
+		if (typeof (/** @type {any} */ (window).showDirectoryPicker) !== "function") return devSay("This browser can't share a folder with a page; use Chrome or Edge.");
 		try {
-			const h = await showDirectoryPicker({ id: "bc-addons", mode: "read" });
+			const h = await /** @type {any} */ (window).showDirectoryPicker({ id: "bc-addons", mode: "read" });
 			await h.getDirectoryHandle("bc-dock"); // the right folder holds the add-on folders
 			dev.root = h;
 			await kv("readwrite", (s) => s.put(h, "root"));
 			dev.known = await devTimes(h);
 			devSay(`Add-on folder: "${h.name}". /reload reloads whatever you change.`);
 		} catch (e) {
-			if (e?.name !== "AbortError")
-				devSay(e?.name === "NotFoundError" ? "Pick the folder that holds bc-dock, bc-little-black-book, bc-quick-actions, bc-vibe-link and bc-afterglow (the bc folder)." : `Couldn't use that folder: ${e?.message || e}`);
+			const err = e instanceof Error ? e : new Error(String(e));
+			if (err.name !== "AbortError")
+				devSay(err.name === "NotFoundError" ? "Pick the folder that holds bc-dock, bc-little-black-book, bc-quick-actions, bc-vibe-link and bc-afterglow (the bc folder)." : `Couldn't use that folder: ${err.message}`);
 		}
 		if (active === CFG) renderCfg();
 	}
 
 	// Runs the file's text in the page, as Tampermonkey did; errors from that run are reported
+	/**
+	 * @param {string} key
+	 * @param {string} code
+	 * @returns {string[]} errors it threw while starting
+	 */
 	function inject(key, code) {
+		/** @type {string[]} */
 		const errors = [];
-		const onErr = (e) => errors.push(`${e.message}${e.lineno ? ` (line ${e.lineno})` : ""}`);
+		const onErr = (/** @type {ErrorEvent} */ e) => errors.push(`${e.message}${e.lineno ? ` (line ${e.lineno})` : ""}`);
 		addEventListener("error", onErr);
 		if (key === "dock") window.__bcDockReload = true;
 		const s = document.createElement("script");
@@ -1113,6 +1263,10 @@
 		return errors;
 	}
 
+	/**
+	 * @param {string[] | null} keys null: the files changed since the last reload
+	 * @param {boolean} [ask] may ask for the folder
+	 */
 	async function devReload(keys, ask = true) {
 		if (!devOn()) return;
 		if (dev.busy) return devSay("Already reloading…");
@@ -1126,8 +1280,11 @@
 				keys = DEV_ORDER.filter((k) => !dev.known || times[k] !== dev.known[k]);
 				if (!keys.length) return devSay("Nothing changed since the last reload. /reload all reloads everything.");
 			}
-			keys = DEV_ORDER.filter((k) => keys.includes(k));
+			const wanted = keys;
+			keys = DEV_ORDER.filter((k) => wanted.includes(k));
+			/** @type {string[]} */
 			const done = [];
+			/** @type {string[]} */
 			const failed = [];
 			let missing = 0;
 			for (const k of keys) {
@@ -1136,8 +1293,8 @@
 					if (errs.length) failed.push(`${ADDONS[k].label}: ${errs.join("; ")}`);
 					else done.push(ADDONS[k].label);
 				} catch (e) {
-					if (e?.name === "NotFoundError") missing++;
-					failed.push(`${ADDONS[k].label}: ${e?.message || e}`);
+					if (e instanceof Error && e.name === "NotFoundError") missing++;
+					failed.push(`${ADDONS[k].label}: ${e instanceof Error ? e.message : String(e)}`);
 				}
 				await new Promise((r) => setTimeout(r, 50));
 			}
@@ -1150,12 +1307,13 @@
 				devSay(`Not reloaded: the add-on folder "${root.name}" was moved or renamed, so the dock can't find it any more. Dock ⚙ → Developer → Choose folder, and pick the bc folder (the one holding bc-dock). The running versions stay until then.`);
 			else if (failed.length) devSay(`Not reloaded (the previous version keeps running): ${failed.join(" · ")}`);
 		} catch (e) {
-			devSay(`Reload failed: ${e?.message || e}`);
+			devSay(`Reload failed: ${e instanceof Error ? e.message : String(e)}`);
 		} finally {
 			dev.busy = false;
 		}
 	}
 
+	/** @param {boolean} on */
 	function setWatch(on) {
 		if (on && !watchAllowed()) {
 			if (devOn()) devSay('Reload on save is off in your loader. Add watch: true to window.BCDockDev to allow it.');
@@ -1165,20 +1323,22 @@
 			save();
 		}
 		clearInterval(dev.watchTimer);
-		dev.watchTimer = null;
+		dev.watchTimer = undefined;
 		if (on)
 			dev.watchTimer = setInterval(async () => {
 				if (dev.busy || window.BCDock !== api || !watchAllowed()) return;
 				const { root } = await devRoot(false);
 				if (!root) return;
 				const times = await devTimes(root);
-				if (!dev.known) return void (dev.known = times);
-				const changed = DEV_ORDER.filter((k) => times[k] !== dev.known[k]);
+				const known = dev.known;
+				if (!known) return void (dev.known = times);
+				const changed = DEV_ORDER.filter((k) => times[k] !== known[k]);
 				if (changed.length) devReload(changed, false).catch((err) => console.warn("[BCDock]", err));
 			}, 1000);
 		if (active === CFG) renderCfg();
 	}
 
+	/** @param {string} argText */
 	function reloadCommand(argText) {
 		const arg = String(argText || "").trim().toLowerCase();
 		if (!arg) return devReload(null);
@@ -1192,7 +1352,7 @@
 		return devReload(keys);
 	}
 
-	dev.cmd = { Tag: "reload", Description: "[all|book|qa|vibe|dock|watch|unwatch|folder]: reload the add-ons from their files (dock ⚙ → Developer)", Action: reloadCommand };
+	dev.cmd = { Tag: "reload", Description: "[all|book|qa|vibe|dock|watch|unwatch|folder]: reload the add-ons from their files (dock ⚙ → Developer)", Action: (/** @type {string} */ args) => void reloadCommand(args) };
 	// Once the game's command list exists (and the loaders have run), the developer tools start, or stay off for good
 	dev.cmdTimer = setInterval(() => {
 		if (typeof Commands === "undefined" || typeof CommandCombine !== "function") return;
@@ -1200,14 +1360,14 @@
 		if (!devOn()) return;
 		devStart();
 		if (Commands.some((c) => c.Tag === "reload")) return console.warn("[BCDock] /reload is taken by another add-on; use the dock ⚙ panel");
-		CommandCombine([dev.cmd]);
+		if (dev.cmd) CommandCombine([dev.cmd]);
 	}, 1000);
 
 	function devStop() {
 		clearInterval(dev.watchTimer);
 		clearInterval(dev.cmdTimer);
 		if (typeof Commands !== "undefined") {
-			const i = Commands.indexOf(dev.cmd);
+			const i = dev.cmd ? Commands.indexOf(dev.cmd) : -1;
 			if (i >= 0) Commands.splice(i, 1);
 		}
 	}
@@ -1238,7 +1398,7 @@
 				{ class: "row" },
 				el("button", { onclick: () => devReload(null) }, "Reload changed"),
 				el("button", { onclick: () => devReload(DEV_ORDER) }, "Reload all"),
-				watchAllowed() ? el("label", {}, el("input", { type: "checkbox", checked: !!state.devWatch, onchange: (e) => setWatch(e.target.checked) }), " on save") : null
+				watchAllowed() ? el("label", {}, el("input", { type: "checkbox", checked: !!state.devWatch, onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => setWatch(e.target.checked) }), " on save") : null
 			),
 			el("div", { class: "hint" }, `Reloads the add-ons from their files without reloading the game (choose the bc folder once). Chat: /reload, /reload all${watchAllowed() ? ", /reload watch" : ""}. Turned on by window.BCDockDev in your loader.`),
 		];
@@ -1261,21 +1421,34 @@
 	const tkOn = () => tkCfg().loader === true;
 	// Carried over when a newer dock takes over, so nothing is loaded twice.
 	// mine: versions this loader started; own: add-ons already running from their own Tampermonkey script (left alone)
+	/** @type {{ started: boolean, list: TkList | null, listAt: number, triedAt?: number, listErr: string | null, mine: Record<string, string>, own: Record<string, string>, busy: Record<string, boolean>, err: Record<string, string>, checking: boolean }} */
 	const tk = prev?._tk?.() || { started: false, list: null, listAt: 0, listErr: null, mine: {}, own: {}, busy: {}, err: {}, checking: false };
-	let tkTimer = null;
-	let tkStatusTimer = null;
-	let tkPollTimer = null;
+	/** @type {ReturnType<typeof setInterval> | undefined} */
+	let tkTimer;
+	/** @type {ReturnType<typeof setInterval> | undefined} */
+	let tkStatusTimer;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let tkPollTimer;
 	const TK_DAY = 24 * 3600 * 1000;
 	const tkEvery = () => (Number(tkCfg().checkMs) > 0 ? Number(tkCfg().checkMs) : TK_DAY);
 	const tkTick = () => (Number(tkCfg().tickMs) > 0 ? Number(tkCfg().tickMs) : 10 * 60 * 1000);
 
 	// Only what the loader needs, checked, so a broken list can't point it at anything but this repository's files
+	/**
+	 * @param {any} raw toolkit.json as parsed
+	 * @returns {TkList | null}
+	 */
 	function tkClean(raw) {
 		if (!raw || raw.format !== "BCToolkit" || !Array.isArray(raw.addons)) return null;
+		/**
+		 * @param {RegExp} re
+		 * @param {unknown} v
+		 * @returns {v is string}
+		 */
 		const ok = (re, v) => typeof v === "string" && re.test(v);
 		const addons = raw.addons
-			.filter((a) => a && ok(/^[a-z]{1,12}$/, a.id) && ok(/^[\w-]+\/[\w.-]+\.js$/, a.path) && ok(/^[A-Z][A-Za-z]{1,29}$/, a.global) && a.global !== "BCDock" && ok(/^[a-z]{1,8}-v$/, a.prefix) && Array.isArray(a.versions))
-			.map((a) => ({
+			.filter((/** @type {any} */ a) => a && ok(/^[a-z]{1,12}$/, a.id) && ok(/^[\w-]+\/[\w.-]+\.js$/, a.path) && ok(/^[A-Z][A-Za-z]{1,29}$/, a.global) && a.global !== "BCDock" && ok(/^[a-z]{1,8}-v$/, a.prefix) && Array.isArray(a.versions))
+			.map((/** @type {any} */ a) => ({
 				id: a.id,
 				name: String(a.name || a.id).slice(0, 40),
 				icon: String(a.icon || "").slice(0, 4),
@@ -1283,14 +1456,15 @@
 				path: a.path,
 				global: a.global,
 				prefix: a.prefix,
-				versions: a.versions.filter((v) => ok(/^\d+\.\d+\.\d+$/, v)).slice(0, 20),
-				beta: Array.isArray(a.beta) ? a.beta.filter((v) => ok(/^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/, v)).slice(0, 20) : [],
+				versions: a.versions.filter((/** @type {unknown} */ v) => ok(/^\d+\.\d+\.\d+$/, v)).slice(0, 20),
+				beta: Array.isArray(a.beta) ? a.beta.filter((/** @type {unknown} */ v) => ok(/^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/, v)).slice(0, 20) : [],
 			}));
-		return addons.length ? { format: "BCToolkit", addons } : null;
+		return addons.length ? { format: /** @type {const} */ ("BCToolkit"), addons } : null;
 	}
 
 	async function tkFetch() {
-		const urls = typeof tkCfg().listUrl === "string" ? [tkCfg().listUrl] : TK_LISTS;
+		const listUrl = tkCfg().listUrl;
+		const urls = typeof listUrl === "string" ? [listUrl] : TK_LISTS;
 		for (const u of urls) {
 			const ctl = new AbortController();
 			const t = setTimeout(() => ctl.abort(), 8000);
@@ -1306,7 +1480,7 @@
 				save();
 				return true;
 			} catch (e) {
-				tk.listErr = e?.name === "AbortError" ? "timed out" : e?.message || String(e);
+				tk.listErr = e instanceof Error ? (e.name === "AbortError" ? "timed out" : e.message) : String(e);
 			} finally {
 				clearTimeout(t);
 			}
@@ -1316,7 +1490,7 @@
 			const cached = tkClean(state.tkList);
 			if (cached) {
 				tk.list = cached;
-				tk.listAt = state.tkList.at || 0;
+				tk.listAt = state.tkList?.at || 0;
 			}
 		}
 		return false;
@@ -1325,9 +1499,14 @@
 	// Test versions are pre-release tags (ag-v0.9.0-beta.1). They're only offered while "Show test versions" is on in ⚙
 	// (saved in this browser; the BC Toolkit (beta) script turns it on until you switch it off). Latest never picks one.
 	const TK_VER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
+	/** @param {unknown} v */
 	const tkIsTest = (v) => typeof v === "string" && v.includes("-");
 	const tkBetaOn = () => (typeof state.tkBeta === "boolean" ? state.tkBeta : tkCfg().beta === true);
 	// Negative when a is newer (semantic versioning: 0.9.0 > 0.9.0-beta.2 > 0.9.0-beta.1 > 0.8.2)
+	/**
+	 * @param {string} a
+	 * @param {string} b
+	 */
 	function tkCmp(a, b) {
 		const [am, ap] = a.split(/-(.*)/s);
 		const [bm, bp] = b.split(/-(.*)/s);
@@ -1347,46 +1526,64 @@
 		return 0;
 	}
 	// Beta: the newest of the latest release and the latest test version (so it moves on to the release that follows)
+	/** @param {TkAddon} a */
 	const tkNewestBeta = (a) => [a.versions[0], a.beta[0]].filter(Boolean).sort(tkCmp)[0] || null;
 	// Every add-on runs at Latest until you pick something else (add-ons new to the list too), or at Beta with the beta
 	// script. With test versions switched off, a Beta or test-version choice runs as Latest (and comes back when it's on).
+	/** @param {string} id */
 	function tkPick(id) {
 		let p = state.tk && typeof state.tk[id] === "string" ? state.tk[id] : tkCfg().beta === true && tkBetaOn() ? "beta" : "latest";
 		if (!tkBetaOn() && (p === "beta" || tkIsTest(p))) p = "latest";
 		return p;
 	}
+	/** @param {TkAddon} a */
 	function tkWant(a) {
 		const p = tkPick(a.id);
 		if (p === "latest") return a.versions[0] || null;
 		if (p === "beta") return tkNewestBeta(a);
 		return TK_VER.test(p) ? p : null;
 	}
+	/** @param {TkAddon} a */
 	const tkFollows = (a) => ["latest", "beta"].includes(tkPick(a.id));
+	// An add-on's console object (window.VibeLink, …), found by the name the list gives
+	/** @param {string} name */
+	const globalOf = (name) => /** @type {Record<string, any>} */ (/** @type {unknown} */ (window))[name];
+	/** @param {TkAddon} a */
 	function tkRunning(a) {
 		try {
-			const g = window[a.global];
+			const g = globalOf(a.global);
 			return g && typeof g === "object" ? String(g.version || "?") : null;
 		} catch {
 			return null;
 		}
 	}
-	const tkUrl = (a, v) => (typeof tkCfg().fileBase === "string" ? tkCfg().fileBase : TK_FILES).replace("{tag}", a.prefix + v) + a.path;
+	/**
+	 * @param {TkAddon} a
+	 * @param {string} v
+	 */
+	const tkUrl = (a, v) => (tkCfg().fileBase ?? TK_FILES).replace("{tag}", a.prefix + v) + a.path;
 
 	// Adds the add-on's file as a script from its release. A copy already running is replaced by the new one itself
 	// (each add-on unloads its previous copy when it starts), so switching versions needs no reload.
+	/**
+	 * @param {TkAddon} a
+	 * @param {string} v
+	 * @returns {Promise<void>}
+	 */
 	function tkLoad(a, v) {
 		tk.busy[a.id] = true;
 		delete tk.err[a.id];
 		tkRender();
 		const url = tkUrl(a, v);
 		return new Promise((resolve) => {
+			/** @type {string[]} */
 			const errs = [];
-			const onErr = (e) => e.filename === url && errs.push(`${e.message}${e.lineno ? ` (line ${e.lineno})` : ""}`);
+			const onErr = (/** @type {ErrorEvent} */ e) => e.filename === url && errs.push(`${e.message}${e.lineno ? ` (line ${e.lineno})` : ""}`);
 			addEventListener("error", onErr);
 			const s = document.createElement("script");
 			s.crossOrigin = "anonymous"; // so an error in the file is reported with its message, not as "Script error."
 			s.src = url;
-			const done = (msg) => {
+			const done = (/** @type {string | null} */ msg) => {
 				removeEventListener("error", onErr);
 				s.remove();
 				delete tk.busy[a.id];
@@ -1406,9 +1603,10 @@
 		});
 	}
 
+	/** @param {TkAddon} a */
 	function tkUnload(a) {
 		try {
-			window[a.global]?.unload?.();
+			globalOf(a.global)?.unload?.();
 			console.log("[BCDock]", `turned off ${a.name}`);
 		} catch (e) {
 			console.warn("[BCDock]", `${a.name} didn't unload cleanly`, e);
@@ -1418,6 +1616,7 @@
 	}
 
 	// Brings one add-on to what its menu says
+	/** @param {TkAddon} a */
 	async function tkApply(a) {
 		if (tk.own[a.id] || tk.busy[a.id]) return;
 		const want = tkWant(a);
@@ -1430,6 +1629,10 @@
 		await tkLoad(a, want);
 	}
 
+	/**
+	 * @param {string} id
+	 * @param {string} pick latest, beta, off or a version
+	 */
 	function tkSet(id, pick) {
 		if (pick !== "off" && pick !== "latest" && pick !== "beta" && !TK_VER.test(pick)) return;
 		state.tk = { ...(state.tk || {}), [id]: pick };
@@ -1539,6 +1742,10 @@
 		tkRender();
 	}
 
+	/**
+	 * @param {TkAddon} a
+	 * @returns {[string, string]} class, text
+	 */
 	function tkStatus(a) {
 		if (tk.own[a.id]) return ["", `v${tk.own[a.id]} runs from its own Tampermonkey script. Turn that script off to choose here.`];
 		if (tk.busy[a.id]) return ["", "loading…"];
@@ -1572,7 +1779,7 @@
 			const pick = tkPick(a.id);
 			const sel = el(
 				"select",
-				{ title: a.about, disabled: !!tk.own[a.id], onchange: (e) => tkSet(a.id, e.target.value) },
+				{ title: a.about, disabled: !!tk.own[a.id], onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => tkSet(a.id, e.target.value) },
 				el("option", { value: "off" }, "Off"),
 				el("option", { value: "latest" }, a.versions[0] ? `Latest (${a.versions[0]})` : "Latest"),
 				tkBetaOn() ? el("option", { value: "beta" }, tkNewestBeta(a) ? `Beta (${tkNewestBeta(a)})` : "Beta") : null,
@@ -1595,7 +1802,7 @@
 				el("input", {
 					type: "checkbox",
 					checked: tkBetaOn(),
-					onchange: async (e) => {
+					onchange: async (/** @type {Event & { target: HTMLInputElement }} */ e) => {
 						state.tkBeta = e.target.checked;
 						save();
 						// Switching off takes anything on a test version back to Latest right away
@@ -1614,7 +1821,9 @@
 	// running, and a button for the dock's ⚙. The game draws the screen and its exit button; the content is a panel
 	// placed over the canvas with the game's own positioning, so it follows the window size.
 	const EXT_ID = "BCToolkit";
+	/** @type {HTMLDivElement | null} */
 	let extBox = null;
+	/** @type {[number, number, number, number]} */
 	const EXIT = [1815, 75, 90, 90];
 
 	function extRender() {
@@ -1671,7 +1880,8 @@
 	};
 	// Registered once the game's preference code is there. A newer dock taking over puts its own handlers into the same
 	// entry (the game allows one per name).
-	let extTimer = null;
+	/** @type {ReturnType<typeof setInterval> | undefined} */
+	let extTimer;
 	function extRegister() {
 		clearInterval(extTimer);
 		const tryIt = () => {
@@ -1712,7 +1922,7 @@
 		version: VERSION,
 		theme: () => themeColors(), // current palette (CSS variable -> value); "bcdock:theme" fires on window when it changes
 		add,
-		isOpen: (id) => (active === id || !!panels.get(id)?.win) && !!panels.get(id),
+		isOpen: (/** @type {string} */ id) => (active === id || !!panels.get(id)?.win) && !!panels.get(id),
 		// A marker in front of the name in the browser tab (an emoji or two), e.g. setTitleMark("quiet", "🔕"); null
 		// removes it. Several add-ons' markers show side by side.
 		setTitleMark,
@@ -1730,7 +1940,7 @@
 		_remove: remove,
 		_devKnown: () => dev.known,
 		_devRoot: () => dev.root,
-		_devKnownSet: (k) => (dev.known = { ...(dev.known || {}), ...k }),
+		_devKnownSet: (/** @type {Record<string, number>} */ k) => (dev.known = { ...(dev.known || {}), ...k }),
 		_titleMarks: () => [...titleMarks],
 		// BC Toolkit loader (bc-toolkit.user.js): what's loaded, menus, and a fresh look at the list
 		toolkit: {

@@ -11,11 +11,13 @@
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
 	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
 	const TAG = "[Quiet]";
+	/** @param {number} m */
 	const KEY = (m) => `Quiet.${m}`;
 
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.Quiet && typeof window.Quiet.unload === "function") window.Quiet.unload();
 
+	/** @param {number} ms */
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof Player === "undefined" || typeof NotificationRaise === "undefined") await sleep(250);
 
@@ -23,10 +25,12 @@
 
 	// ---------- state: one flag per character, in this browser ----------
 
+	/** @type {number | null} */
 	let member = null; // whose setting is loaded
 	let muted = false;
 	let skipped = 0; // notifications held back since muting, for the tooltip
 
+	/** @param {number} m */
 	const read = (m) => {
 		try {
 			return localStorage.getItem(KEY(m)) === "1";
@@ -34,6 +38,10 @@
 			return false;
 		}
 	};
+	/**
+	 * @param {number} m
+	 * @param {boolean} on
+	 */
 	const write = (m, on) => {
 		try {
 			if (on) localStorage.setItem(KEY(m), "1");
@@ -53,6 +61,10 @@
 		}
 	}
 
+	/**
+	 * @param {boolean} on
+	 * @param {boolean} [say] tell the player in the chat
+	 */
 	function setMuted(on, say = true) {
 		on = !!on;
 		if (!member) return;
@@ -65,6 +77,7 @@
 		if (say) tell(on ? "🔕 Notifications muted in this tab. Click 🔕 on the dock or type /quiet to turn them back on." : "🔔 Notifications are back on in this tab.");
 	}
 
+	/** @param {string} msg */
 	function tell(msg) {
 		if (typeof CurrentScreen !== "undefined" && CurrentScreen === "ChatRoom" && typeof ChatRoomSendLocal === "function") ChatRoomSendLocal(msg, 10_000);
 		console.log(TAG, msg);
@@ -88,7 +101,9 @@
 	// state adds the tab again with the other icon (adding an id that exists replaces it in place).
 
 	const ui = (() => {
+		/** @type {BCDockHandle | null} */
 		let tab = null;
+		/** @type {string | null} */
 		let shownIcon = null;
 		let warned = false;
 		const icon = () => (muted ? "🔕" : "🔔");
@@ -128,7 +143,7 @@
 	const COMMAND = {
 		Tag: "quiet",
 		Description: "[on|off]: mute or unmute the game's notifications in this tab (no argument switches)",
-		Action: (args) => {
+		Action: (/** @type {string} */ args) => {
 			const a = String(args || "").trim().toLowerCase();
 			if (a === "on" || a === "mute") setMuted(true);
 			else if (a === "off" || a === "unmute") setMuted(false);

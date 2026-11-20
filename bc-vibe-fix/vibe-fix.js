@@ -28,7 +28,7 @@
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.VibeFix && typeof window.VibeFix.unload === "function") window.VibeFix.unload();
 
-	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+	const sleep = (/** @type {number | undefined} */ ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof ExtendedItemSetProperty === "undefined" || typeof DialogStruggleStop === "undefined") await sleep(250);
 
 	const mod = bcModSdk.registerMod(MOD_INFO);
@@ -70,7 +70,7 @@
 		try {
 			const [, game, data] = args;
 			if (game === "LockPick" && !data?.Interrupted && typeof DialogStruggleAction !== "undefined" && !DialogStruggleAction) {
-				DialogStruggleAction = "ActionPick";
+				DialogStruggleAction = "ActionUnlock";
 				set = true;
 				if (data?.Progress >= 100) picked++;
 			}
@@ -83,7 +83,7 @@
 			// Leave nothing behind for the next struggle
 			if (set)
 				try {
-					if (DialogStruggleAction === "ActionPick") DialogStruggleAction = null;
+					if (DialogStruggleAction === "ActionUnlock") DialogStruggleAction = null;
 				} catch {
 					// already done or gone: nothing to undo
 				}

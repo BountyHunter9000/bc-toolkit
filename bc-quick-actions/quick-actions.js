@@ -17,6 +17,7 @@
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.QuickActions && typeof window.QuickActions.unload === "function") window.QuickActions.unload();
 
+	/** @param {number} ms */
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof ServerSocket === "undefined" || typeof Player === "undefined" || typeof ActivityRun === "undefined")
 		await sleep(250);
@@ -28,6 +29,11 @@
 	// An action is { activity, group, item?, self } — item is the asset name for item activities (e.g. MoanGag with a gag)
 	// (older versions also saved pos/size/collapsed/dock here; the shared dock handles those now)
 	// cooldownSec: the least time between two runs of the same action on the same person (anti-spam, set in the panel's ⚙)
+	/**
+	 * @typedef {{ activity: ActivityName, group: AssetGroupItemName, self?: boolean, item?: string }} QAAction
+	 * @typedef {{ favorites: QAAction[], recent: QAAction[], cooldownSec: number, scale?: number }} QASettings
+	 */
+	/** @returns {QASettings} */
 	const DEFAULTS = () => ({ favorites: [], recent: [], cooldownSec: 1.5 });
 	let settings = DEFAULTS();
 	const COOLDOWN_CHOICES = [0.5, 1, 1.5, 2, 3, 5, 10];
@@ -39,13 +45,14 @@
 		settings = DEFAULTS();
 		try {
 			const raw = Player.ExtensionSettings?.[SETTINGS_KEY];
-			if (typeof raw === "string" && raw) settings = { ...settings, ...JSON.parse(LZString.decompressFromUTF16(raw)) };
+			if (typeof raw === "string" && raw) settings = { ...settings, .../** @type {Partial<QASettings>} */ (JSON.parse(LZString.decompressFromUTF16(raw) || "{}")) };
 		} catch (e) {
 			console.warn(TAG, "settings load failed", e);
 		}
 	}
 
-	let saveTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let saveTimer;
 	function saveSettings() {
 		clearTimeout(saveTimer);
 		saveTimer = setTimeout(() => {
@@ -55,10 +62,15 @@
 		}, 1000);
 	}
 
+	/**
+	 * @param {QAAction} a
+	 * @param {QAAction} b
+	 */
 	const sameAction = (a, b) => a.activity === b.activity && a.group === b.group && (a.item || "") === (b.item || "") && !!a.self === !!b.self;
 
 	// ---------- game helpers ----------
 
+	/** @param {string} name */
 	function activityLabel(name) {
 		let txt = "";
 		try {
@@ -71,6 +83,10 @@
 		return name.replace(/^[A-Za-z]+_/, "").replace(/([a-z])([A-Z])/g, "$1 $2");
 	}
 
+	/**
+	 * @param {Character | null} target
+	 * @param {AssetGroupItemName} group
+	 */
 	function groupLabel(target, group) {
 		try {
 			const g = AssetGroupGet(target?.AssetFamily || "Female3DCG", group);
@@ -81,6 +97,10 @@
 		return group.replace(/^Item/, "");
 	}
 
+	/**
+	 * @param {QAAction} a
+	 * @param {Character | null} target
+	 */
 	function actionLabel(a, target) {
 		return `${activityLabel(a.activity)} · ${groupLabel(target, a.group)}`;
 	}
@@ -90,6 +110,11 @@
 	}
 
 	// Mirrors what the character dialog offers right now: permission, distance, restraints, gags...
+	/**
+	 * @param {Character | null} target
+	 * @param {QAAction} action
+	 * @returns {{ error: string } | { error?: undefined, group: AssetItemGroup, itemActivity: ItemActivity }}
+	 */
 	function findAllowed(target, action) {
 		if (!target) return { error: "Your target isn't in this room right now." };
 		if (!target.IsPlayer() && !ServerChatRoomGetAllowItem(Player, target)) return { error: `${target.Name} doesn't allow you to interact.` };
@@ -103,13 +128,19 @@
 	}
 
 	// When each action last ran on each person, so a favorite can't be fired faster than the cooldown
+	/** @type {Map<string, number>} */
 	const lastRun = new Map();
+	/**
+	 * @param {QAAction} action
+	 * @param {Character | null} target
+	 */
 	function runAction(action, target) {
 		const key = `${target?.MemberNumber}|${action.activity}|${action.group}|${action.item || ""}`;
 		const wait = Math.max(0.5, Number(settings.cooldownSec) || 1.5) * 1000 - (Date.now() - (lastRun.get(key) || 0));
 		if (wait > 0) return ui.toast(`Wait ${Math.ceil(wait / 100) / 10} s before doing that again.`);
 		const res = findAllowed(target, action);
-		if (res.error) return ui.toast(res.error);
+		if (res.error !== undefined) return ui.toast(res.error);
+		if (!target) return;
 		lastRun.set(key, Date.now());
 		// Same call the dialog makes when you click an activity
 		ActivityRun(Player, target, res.group, res.itemActivity);
@@ -120,6 +151,7 @@
 		try {
 			const [actor, acted, group, itemActivity] = args;
 			if (actor?.IsPlayer?.() && acted && group?.Name && itemActivity?.Activity?.Name) {
+				/** @type {QAAction} */
 				const action = { activity: itemActivity.Activity.Name, group: group.Name, self: !!acted.IsPlayer() };
 				if (itemActivity.Item?.Asset?.Name) action.item = itemActivity.Item.Asset.Name;
 				settings.recent = [action, ...settings.recent.filter((a) => !sameAction(a, action))].slice(0, MAX_RECENT);
@@ -134,6 +166,15 @@
 
 	// ---------- UI ----------
 
+	/**
+	 * An element with attributes (class, on<event> listeners, the rest as attributes; null/false left out) and children
+	 * (nodes, text, arrays of them; null/false left out)
+	 * @template {keyof HTMLElementTagNameMap} K
+	 * @param {K} tag
+	 * @param {Record<string, any>} [attrs]
+	 * @param {...any} children
+	 * @returns {HTMLElementTagNameMap[K]}
+	 */
 	const h = (tag, attrs = {}, ...children) => {
 		const el = document.createElement(tag);
 		for (const [k, v] of Object.entries(attrs)) {
@@ -171,40 +212,47 @@
 `;
 
 	const ui = (() => {
+		/** @type {BCDockHandle | null} */
 		let panel = null; // our panel in the shared dock
+		/** @type {HTMLElement | null} */
 		let bar = null; // the panel's body element
 		let inRoom = false;
+		/** @type {Character | null} */
 		let target = null; // Character, looked up from `chosen` on every tick (null while they're not in the room)
 		// Who you picked in the Target menu, by member number (null: yourself). Only that menu changes it: not opening
 		// someone's dialog, not people coming and going, not the game replacing its character objects on a room sync.
+		/** @type {number | null} */
 		let chosen = null;
 		let chosenName = "";
 		let pickerOpen = false;
 		let pickerGroup = "";
 		let lastSig = "";
-		let refreshTimer = null;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		let refreshTimer;
+		/** @type {HTMLDivElement | null} */
 		let toastEl = null;
-		let toastTimer = null;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		let toastTimer;
+		/** @type {number | null} */
 		let dragging = null; // index into settings.favorites while a favorite is being dragged
 		let optsOpen = false; // the ⚙ settings block
 
+		/** @param {string} msg */
 		function toast(msg) {
-			if (!toastEl) {
-				toastEl = h("div", { id: "qa-toast" });
-				document.body.append(toastEl);
-			}
-			toastEl.textContent = msg;
-			toastEl.style.opacity = "1";
+			const el = toastEl || (toastEl = h("div", { id: "qa-toast" }));
+			if (!el.isConnected) document.body.append(el);
+			el.textContent = msg;
+			el.style.opacity = "1";
 			clearTimeout(toastTimer);
-			toastTimer = setTimeout(() => (toastEl.style.opacity = "0"), 2500);
+			toastTimer = setTimeout(() => (el.style.opacity = "0"), 2500);
 		}
 
 		function mount() {
 			document.head.append(h("style", { id: "qa-style" }, CSS));
 			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no bar");
-			panel = BCDock.add({ id: "quick-actions", title: "Quick Actions", icon: "⚡", order: 20, version: MOD_INFO.version, width: 190, minWidth: 150, maxWidth: 240, alignStart: true, open: true, visible: false, onToggle: () => render() });
-			bar = panel.body;
-			bar.id = "qa-body";
+			panel = BCDock.add({ id: "quick-actions", title: "Quick Actions", icon: "⚡", order: 20, version: MOD_INFO.version, width: 190, minWidth: 150, maxWidth: 240, alignStart: true, visible: false, onToggle: () => render() });
+			bar = panel.body || null;
+			if (bar) bar.id = "qa-body";
 		}
 
 		function unmount() {
@@ -218,6 +266,7 @@
 			if (bar) bar.style.fontSize = `${Math.round(13 * (settings.scale || 1))}px`;
 		}
 
+		/** @param {number} delta */
 		function setScale(delta) {
 			settings.scale = Math.min(1.6, Math.max(0.7, Math.round(((settings.scale || 1) + delta) * 10) / 10));
 			applyScale();
@@ -242,16 +291,16 @@
 			clearTimeout(refreshTimer);
 			refreshTimer = setTimeout(() => {
 				// Re-rendering would close a dropdown the user is in the middle of using
-				if (!bar || dragging != null || (bar.contains(document.activeElement) && document.activeElement.tagName === "SELECT")) return;
+				if (!bar || dragging != null || (bar.contains(document.activeElement) && document.activeElement?.tagName === "SELECT")) return;
 				render();
 			}, 50);
 		}
 
 		function render() {
-			if (!panel) return;
+			if (!panel || !bar) return;
 			lastSig = signature();
 			panel.setSummary(target ? `→ ${target.IsPlayer() ? "you" : typeof CharacterNickname === "function" ? CharacterNickname(target) : target.Name}` : chosen != null ? `→ ${chosenName} (not here)` : "");
-			panel.actions.replaceChildren(
+			panel.actions?.replaceChildren(
 				h("button", { class: "bcd-ico", title: "Smaller text", onclick: () => setScale(-0.1) }, "A−"),
 				h("button", { class: "bcd-ico", title: "Larger text", onclick: () => setScale(0.1) }, "A+"),
 				h("button", { class: `bcd-ico${optsOpen ? " sel" : ""}`, title: "Quick Actions settings", onclick: () => ((optsOpen = !optsOpen), render()) }, "⚙")
@@ -265,6 +314,7 @@
 			const recent = settings.recent.filter((a) => !!a.self === isSelf && !settings.favorites.some((f) => sameAction(f, a)));
 
 			// One narrow column: target dropdown, then the actions one per line, so it covers as little of the room as possible
+			/** @param {Character} c */
 			const nameOf = (c) => (c.IsPlayer() ? "Me" : typeof CharacterNickname === "function" ? CharacterNickname(c) : c.Name);
 			bar.replaceChildren(...[
 				h("div", { class: "qa-head" }, "Target"),
@@ -272,10 +322,10 @@
 					"select",
 					{
 						title: "Who the actions are done to. It stays on them until you pick someone else here.",
-						onchange: (e) => {
+						onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => {
 							const c = chars.find((x) => String(x.MemberNumber) === e.target.value);
 							if (c) {
-								chosen = c.IsPlayer() ? null : c.MemberNumber;
+								chosen = c.IsPlayer() ? null : (c.MemberNumber ?? null);
 								chosenName = nameOf(c);
 								target = c;
 							}
@@ -294,28 +344,34 @@
 				h("button", { class: "qa-wide", style: "margin-top:5px", onclick: () => ((pickerOpen = !pickerOpen), render()) }, pickerOpen ? "Close picker" : "+ Find an action"),
 				pickerOpen ? renderPicker() : null,
 				optsOpen ? renderOpts() : null
-			].filter(Boolean));
+			].filter((x) => x != null));
 		}
 
+		/**
+		 * @param {QAAction} a
+		 * @param {number} favIndex its place in settings.favorites (-1: not a favorite)
+		 * @param {boolean} isFav
+		 */
 		function actionButton(a, favIndex, isFav) {
 			const res = findAllowed(target, a);
 			const hotkey = isFav ? favHotkey(a) : 0;
 			const dragHandlers = isFav
 				? {
 					draggable: "true",
-					ondragstart: (e) => {
+					ondragstart: (/** @type {DragEvent} */ e) => {
 						dragging = favIndex;
+						if (!e.dataTransfer) return;
 						e.dataTransfer.effectAllowed = "move";
 						e.dataTransfer.setData("text/plain", String(favIndex));
 					},
 					ondragend: () => (dragging = null),
-					ondragover: (e) => {
+					ondragover: (/** @type {DragEvent & { currentTarget: HTMLElement }} */ e) => {
 						if (dragging == null || dragging === favIndex) return;
 						e.preventDefault();
 						e.currentTarget.classList.add("drop");
 					},
-					ondragleave: (e) => e.currentTarget.classList.remove("drop"),
-					ondrop: (e) => {
+					ondragleave: (/** @type {DragEvent & { currentTarget: HTMLElement }} */ e) => e.currentTarget.classList.remove("drop"),
+					ondrop: (/** @type {DragEvent} */ e) => {
 						e.preventDefault();
 						moveFavorite(dragging, favIndex);
 						dragging = null;
@@ -329,8 +385,8 @@
 					// Not `disabled`: a disabled button swallows clicks on its unpin ×
 					class: `qa-act${res.error ? " off" : ""}`,
 					title: res.error || `${actionLabel(a, target)}${a.item ? ` (with ${a.item})` : ""}`,
-					onclick: (e) => {
-						if (e.target.classList.contains("x")) return;
+					onclick: (/** @type {MouseEvent} */ e) => {
+						if (/** @type {HTMLElement} */ (e.target).classList.contains("x")) return;
 						if (res.error) return toast(res.error);
 						runAction(a, target);
 						refreshSoon();
@@ -345,12 +401,14 @@
 		}
 
 		// Alt+1..9 fire the favorites visible for the current target, in order
+		/** @param {QAAction} a */
 		function favHotkey(a) {
 			const isSelf = !!target?.IsPlayer();
 			const i = settings.favorites.filter((f) => !!f.self === isSelf).indexOf(a);
 			return i >= 0 && i < 9 ? i + 1 : 0;
 		}
 
+		/** @param {QAAction} a */
 		function pin(a) {
 			if (settings.favorites.some((f) => sameAction(f, a))) return;
 			if (settings.favorites.filter((f) => !!f.self === !!a.self).length >= MAX_FAVS_PER_SIDE)
@@ -361,6 +419,10 @@
 		}
 
 		// Hotkeys follow list order, so dragging a favorite onto another one re-assigns Alt+#
+		/**
+		 * @param {number | null} from
+		 * @param {number} to
+		 */
 		function moveFavorite(from, to) {
 			if (from == null || from === to || !settings.favorites[from] || !settings.favorites[to]) return;
 			const [item] = settings.favorites.splice(from, 1);
@@ -369,6 +431,7 @@
 			render();
 		}
 
+		/** @param {number} i */
 		function unpin(i) {
 			settings.favorites.splice(i, 1);
 			saveSettings();
@@ -390,7 +453,7 @@
 						"select",
 						{
 							style: "width:auto",
-							onchange: (e) => {
+							onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => {
 								settings.cooldownSec = Number(e.target.value);
 								saveSettings();
 								e.target.blur();
@@ -407,22 +470,25 @@
 			const t = target;
 			if (!t) return null;
 			if (!t.IsPlayer() && !ServerChatRoomGetAllowItem(Player, t)) return h("div", { class: "qa-lbl" }, `${t.Name} doesn't allow you to interact.`);
-			const groups = AssetGroup.filter((g) => g.Category === "Item" && g.Family === t.AssetFamily);
-			const available = groups.map((g) => [g, ActivityAllowedForGroup(t, g.Name).filter((o) => !o.Blocked)]).filter(([, acts]) => acts.length);
+			const groups = /** @type {AssetItemGroup[]} */ (AssetGroup.filter((g) => g.Category === "Item" && g.Family === t.AssetFamily));
+			const available = groups
+				.map((g) => /** @type {[AssetItemGroup, ItemActivity[]]} */ ([g, ActivityAllowedForGroup(t, g.Name).filter((o) => !o.Blocked)]))
+				.filter(([, acts]) => acts.length);
 			if (!available.length) return h("div", { class: "qa-lbl" }, "No activities possible right now.");
 			if (!available.some(([g]) => g.Name === pickerGroup)) pickerGroup = available[0][0].Name;
 			const select = h(
 				"select",
-				{ onchange: (e) => ((pickerGroup = e.target.value), render()) },
+				{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((pickerGroup = e.target.value), render()) },
 				available.map(([g, acts]) => h("option", { value: g.Name, selected: g.Name === pickerGroup }, `${g.Description || g.Name} (${acts.length})`))
 			);
-			const list = available.find(([g]) => g.Name === pickerGroup)[1];
+			const list = available.find(([g]) => g.Name === pickerGroup)?.[1] || [];
 			return h(
 				"div",
 				{ id: "qa-pick", class: "qa-col" },
 				select,
 				list.map((o) => {
-					const a = { activity: o.Activity.Name, group: pickerGroup, self: !!t.IsPlayer() };
+					/** @type {QAAction} */
+					const a = { activity: o.Activity.Name, group: /** @type {AssetGroupItemName} */ (pickerGroup), self: !!t.IsPlayer() };
 					if (o.Item?.Asset?.Name) a.item = o.Item.Asset.Name;
 					const pinned = settings.favorites.some((f) => sameAction(f, a));
 					return h(
@@ -430,8 +496,8 @@
 						{
 							class: "qa-act",
 							title: o.Item?.Asset ? `with ${o.Item.Asset.Description}` : "",
-							onclick: (e) => {
-								if (e.target.classList.contains("x")) return;
+							onclick: (/** @type {MouseEvent} */ e) => {
+								if (/** @type {HTMLElement} */ (e.target).classList.contains("x")) return;
 								runAction(a, t);
 							},
 						},
@@ -442,6 +508,7 @@
 			);
 		}
 
+		/** @param {KeyboardEvent} e */
 		function onKey(e) {
 			if (!panel || !inRoom || !e.altKey || e.ctrlKey || e.metaKey) return;
 			const n = parseInt(e.key, 10);
@@ -462,6 +529,7 @@
 	// ---------- wiring ----------
 
 	ui.mount();
+	/** @type {number | null} */
 	let settingsLoadedFor = null;
 	const tickTimer = setInterval(() => {
 		// Settings live on the account, so (re)load them whenever a different account logs in
@@ -478,7 +546,7 @@
 	window.QuickActions = {
 		version: MOD_INFO.version,
 		settings: () => settings,
-		run: (action, target = Player) => runAction(action, target),
+		run: (/** @type {QAAction} */ action, /** @type {Character} */ target = Player) => runAction(action, target),
 		unload() {
 			clearInterval(tickTimer);
 			clearInterval(roomTimer);

@@ -94,12 +94,25 @@ loader that `@require`s the files from disk instead of from a release:
 `window.BCDockDev = { reload: true };` at the end of the loader to get the dock's developer tools:
 `/reload` picks up edited files without reloading the game. See the [dock's README](bc-dock/README.md#reloading-the-add-ons-without-reloading-the-game).
 
+### Checks
+
+The add-ons are held to Bondage Club's own standard for its scripts: its ESLint config and its strict TypeScript
+check (`checkJs` + `strict`, types written as JSDoc). With a checkout of the game's repository:
+
+```sh
+node tools/check.mjs --game path/to/Bondage-College/BondageClub
+```
+
+It places the add-ons among the game's scripts in a temporary folder, installs the game's npm packages there once,
+and runs both checks; nothing in either checkout changes. Shared types (the dock's API, what each add-on puts on
+`window`) are in [`types/bc-toolkit.d.ts`](types/bc-toolkit.d.ts), used only by the check.
+
 ### Releasing
 
 Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-vX.Y.Z`, `ag-vX.Y.Z`,
 `qt-vX.Y.Z`, `hr-vX.Y.Z`, `vf-vX.Y.Z`.
 
-1. Bump the version in the add-on's `MOD_INFO` and update its README.
+1. Bump the version in the add-on's `MOD_INFO` and update its README. `node tools/check.mjs` should pass.
 2. Commit, then tag that commit (`git tag qa-v0.5.2`).
 3. Run `node tools/toolkit-list.mjs` to add the new version to `toolkit.json` (the list BC Toolkit's menus are
    filled from), and commit that.

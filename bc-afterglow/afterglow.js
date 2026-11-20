@@ -34,11 +34,29 @@
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.Afterglow && typeof window.Afterglow.unload === "function") window.Afterglow.unload();
 
+	/** @param {number} ms */
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof Player === "undefined" || typeof ActivityOrgasmStart === "undefined") await sleep(250);
 
 	const mod = bcModSdk.registerMod(MOD_INFO);
 
+	/**
+	 * @typedef {"orgasm" | "ruined" | "resisted" | "failed" | "denied" | "edged"} AgKind
+	 * @typedef {"denied" | "edged" | "ruined" | "resisted"} AgStreakKind kinds counted between two orgasms
+	 * @typedef {"denied" | "edged" | "ruined"} AgHeldKind kinds whose effect is timed while it's on you
+	 * @typedef {{ ms: number, from: number, to: number, exact: boolean, manual?: boolean }} AgGap a stretch without an orgasm
+	 * @typedef {"item" | "none" | number} AgLevel who may see a part: the game's item permission, nobody, or a level 0-5
+	 * @typedef {[number, AgKind | "away", string, (string | number)?]} AgLogEntry [time, kind, room, how (or ms away)]
+	 * @typedef {{ on: boolean, counts: AgLevel, records: AgLevel, held: AgLevel, look: boolean }} AgShare
+	 * @typedef {{ v: number, since: number, totals: Record<AgKind, number>, base: Record<AgKind, number>, last: Partial<Record<AgKind, number>>, lastOrgasmAt: number | null, streakStart: number, streak: Record<AgStreakKind, number>, rec: { gap: AgGap | null, gapOnline: AgGap | null } & Record<AgStreakKind, number>, show: AgKind, held: Record<AgHeldKind, number>, edgeMs: number, heldEdge: number | null, edgeSince: number, edgeDay: { d: string, ms: number }, timeMode: "real" | "online", alive: number, away: [number, number][], share: AgShare, belt: { mode: "ask" | "auto" | "off", show: boolean, ignored: number } }} AgState
+	 * @typedef {{ start: number, last: number, edgeMs: number } & Record<AgKind, number>} AgSession
+	 * @typedef {{ since: number, exact: boolean, streak: Record<AgStreakKind, number>, session: Record<AgKind, number>, today: Record<AgKind, number>, all: Record<AgKind, number> }} AgSharedCounts
+	 * @typedef {{ gap: { ms: number, exact: boolean, manual: boolean } | null, rec: Record<AgStreakKind, number>, edge: { session: number, today: number, all: number }, online: boolean }} AgSharedRecords
+	 * @typedef {{ age: number, away: number, edging?: number, items: string[] }} AgSharedHeld
+	 * @typedef {{ t: "stats", name: string, counts?: AgSharedCounts, records?: AgSharedRecords, held?: Partial<Record<AgHeldKind, AgSharedHeld>> }} AgStats what someone may see of you
+	 * @typedef {AgStats | { t: "stop" } | { t: "ask" }} AgMessage
+	 */
+	/** @type {Record<AgKind, { label: string, one: string, icon: string }>} */
 	const KINDS = {
 		orgasm: { label: "Orgasms", one: "Orgasm", icon: "💦" },
 		ruined: { label: "Ruined", one: "Ruined", icon: "💔" },
@@ -47,30 +65,34 @@
 		denied: { label: "Denied", one: "Denied", icon: "⛔" }, // held at the edge by a denial effect (DenialMode)
 		edged: { label: "Edged", one: "Edged", icon: "🫠" }, // held at the edge by an edging effect (Edged, or an Edging craft)
 	};
-	const KIND_KEYS = Object.keys(KINDS);
-	const zeroCounts = () => Object.fromEntries(KIND_KEYS.map((k) => [k, 0]));
+	const KIND_KEYS = /** @type {AgKind[]} */ (Object.keys(KINDS));
+	const zeroCounts = () => /** @type {Record<AgKind, number>} */ (Object.fromEntries(KIND_KEYS.map((k) => [k, 0])));
+	/** @type {AgStreakKind[]} */
 	const STREAK_KEYS = ["denied", "edged", "ruined", "resisted"]; // counted between two orgasms
+	/** @type {AgStreakKind[]} */
 	const BOX_KEYS = ["denied", "ruined", "resisted"]; // the small boxes (edged shares the denied one)
+	/** @type {AgHeldKind[]} */
 	const HELD_KEYS = ["denied", "edged", "ruined"]; // these also time how long the effect has been on you
 
 	// ---------- state (with the account) ----------
 	// since: when Afterglow started counting on this account. lastOrgasmAt: the last orgasm it saw (null: none yet,
 	// so the current stretch is counted from `since` and is only a lower bound). streak: denials, ruins and resists
 	// since then. rec: the longest stretch without an orgasm (gap) and the most of each in one stretch.
+	/** @returns {AgState} */
 	const fresh = () => ({
 		v: 1,
 		since: Date.now(),
 		totals: zeroCounts(),
 		base: zeroCounts(), // from before Afterglow, entered by hand
 		last: {},
-		lastOrgasmAt: /** @type {number | null} */ (null),
+		lastOrgasmAt: null,
 		streakStart: Date.now(),
 		streak: { denied: 0, edged: 0, ruined: 0, resisted: 0 },
 		rec: { gap: null, gapOnline: null, denied: 0, edged: 0, ruined: 0, resisted: 0 },
 		show: "orgasm", // what the dock tab shows: the orgasm clock, or the denied / ruined / resisted box
 		held: { denied: 0, edged: 0, ruined: 0 }, // since when a denial / edging / ruin effect has been on you, 0: none now
 		edgeMs: 0, // time edged (online, with an edging effect on you), since edgeSince
-		heldEdge: /** @type {number | null} */ (null), // time edged since the current edging timer started (null: none, or it started before 0.8.0)
+		heldEdge: null, // time edged since the current edging timer started (null: none, or it started before 0.8.0)
 		edgeSince: Date.now(), // when Afterglow started counting time edged, or it was last reset
 		edgeDay: { d: "", ms: 0 }, // time edged today (d: the local date it's for)
 		timeMode: "real", // "real": clocks and records count all time; "online": only time you were logged in
@@ -85,12 +107,21 @@
 		belt: { mode: "ask", show: true, ignored: 0 },
 	});
 	let state = fresh();
+	/** @type {number | null} */
 	let loadedFor = null;
 
+	/**
+	 * @param {any} s the saved state, as parsed
+	 * @returns {AgState}
+	 */
 	function clean(s) {
 		const out = fresh();
 		if (!s || typeof s !== "object") return out;
-		const num = (v, d = 0) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : d);
+		/**
+		 * @param {unknown} v
+		 * @param {number} [d]
+		 */
+		const num = (v, d = 0) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : d);
 		out.since = num(s.since, out.since);
 		for (const k of KIND_KEYS) out.totals[k] = num(s.totals?.[k]);
 		for (const k of KIND_KEYS) out.base[k] = num(s.base?.[k]);
@@ -99,33 +130,42 @@
 		out.streakStart = num(s.streakStart, out.lastOrgasmAt || out.since);
 		for (const k of STREAK_KEYS) out.streak[k] = num(s.streak?.[k]);
 		for (const k of STREAK_KEYS) out.rec[k] = num(s.rec?.[k]);
-		if (KINDS[s.show]) out.show = s.show;
+		if (typeof s.show === "string" && s.show in KINDS) out.show = /** @type {AgKind} */ (s.show);
 		for (const k of HELD_KEYS) out.held[k] = num(s.held?.[k]);
 		out.edgeMs = num(s.edgeMs);
 		out.heldEdge = typeof s.heldEdge === "number" && s.heldEdge >= 0 && out.held.edged ? Math.round(s.heldEdge) : null;
 		out.edgeSince = num(s.edgeSince, out.since);
 		if (s.edgeDay && typeof s.edgeDay.d === "string") out.edgeDay = { d: s.edgeDay.d, ms: num(s.edgeDay.ms) };
+		/**
+		 * @param {any} g
+		 * @returns {AgGap | null}
+		 */
 		const gap = (g) => (g && num(g.ms) ? { ms: num(g.ms), from: num(g.from), to: num(g.to), exact: !!g.exact, ...(g.manual ? { manual: true } : {}) } : null);
 		out.rec.gap = gap(s.rec?.gap);
 		// Records from before time away was tracked: all of it counts as online
 		out.rec.gapOnline = s.rec && "gapOnline" in s.rec ? gap(s.rec.gapOnline) : out.rec.gap && { ...out.rec.gap };
 		if (s.timeMode === "online") out.timeMode = "online";
 		out.alive = num(s.alive);
-		const lvl = (v, d) => (v === "item" || v === "none" ? v : Number.isInteger(v) && v >= 0 && v <= 5 ? v : d);
+		/**
+		 * @param {unknown} v
+		 * @param {AgLevel} d
+		 * @returns {AgLevel}
+		 */
+		const lvl = (v, d) => (v === "item" || v === "none" ? v : typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 5 ? v : d);
 		if (s.belt && typeof s.belt === "object")
 			out.belt = { mode: ["ask", "auto", "off"].includes(s.belt.mode) ? s.belt.mode : "ask", show: s.belt.show !== false, ignored: num(s.belt.ignored) };
 		if (s.share && typeof s.share === "object")
 			out.share = { on: !!s.share.on, counts: lvl(s.share.counts, "item"), records: lvl(s.share.records, "item"), held: lvl(s.share.held, 4), look: s.share.look !== false };
 		out.away = (Array.isArray(s.away) ? s.away : [])
-			.filter((a) => Array.isArray(a) && num(a[0]) && num(a[1]) > num(a[0]))
-			.map((a) => [num(a[0]), num(a[1])])
+			.filter((/** @type {unknown} */ a) => Array.isArray(a) && num(a[0]) && num(a[1]) > num(a[0]))
+			.map((/** @type {any[]} */ a) => /** @type {[number, number]} */ ([num(a[0]), num(a[1])]))
 			.slice(-AWAY_MAX);
 		return out;
 	}
 	function load() {
 		try {
 			const raw = Player.ExtensionSettings?.[SETTINGS_KEY];
-			state = typeof raw === "string" && raw ? clean(JSON.parse(LZString.decompressFromUTF16(raw))) : fresh();
+			state = typeof raw === "string" && raw ? clean(JSON.parse(LZString.decompressFromUTF16(raw) || "null")) : fresh();
 		} catch (e) {
 			console.warn(TAG, "load failed", e);
 			state = fresh();
@@ -168,6 +208,10 @@
 		}
 	}
 	const connected = () => typeof ServerIsConnected === "undefined" || ServerIsConnected !== false;
+	/**
+	 * @param {number} from
+	 * @param {number} to
+	 */
 	function addAway(from, to) {
 		state.away.push([from, to]);
 		// Only stretches inside one of the running clocks or the record still matter
@@ -179,19 +223,28 @@
 		save();
 	}
 	// Time away between a and b
+	/**
+	 * @param {number} a
+	 * @param {number} b
+	 */
 	function awayBetween(a, b) {
 		let ms = 0;
 		for (const [f, t] of state.away) ms += Math.max(0, Math.min(t, b) - Math.max(f, a));
 		return ms;
 	}
 	// How long since t: all of it, or only time online (state.timeMode)
+	/**
+	 * @param {number} t
+	 * @param {"real" | "online"} [mode]
+	 */
 	const elapsed = (t, mode = state.timeMode) => Math.max(0, Date.now() - t - (mode === "online" ? awayBetween(t, Date.now()) : 0));
 	const recGap = () => (state.timeMode === "online" ? state.rec.gapOnline : state.rec.gap);
-	let saveTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let saveTimer;
 	let dirty = false;
 	function saveNow() {
 		clearTimeout(saveTimer);
-		saveTimer = null;
+		saveTimer = undefined;
 		if (!Player.ExtensionSettings || !Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
 		dirty = false;
 		Player.ExtensionSettings[SETTINGS_KEY] = LZString.compressToUTF16(JSON.stringify(state));
@@ -205,19 +258,24 @@
 
 	// ---------- event log (this browser only) ----------
 	// [time, kind, room, how?]: for "today" and the recent list
+	/** @type {AgLogEntry[]} */
 	let log = [];
 	// ---------- session (this browser) ----------
 	// Counts and time edged since this session started. Kept in localStorage so a reload, a reconnect or a short break
 	// doesn't end it: it goes on until Afterglow hasn't run for SESSION_GAP_MS.
+	/** @returns {AgSession} */
 	const newSession = () => ({ start: Date.now(), last: Date.now(), ...zeroCounts(), edgeMs: 0 });
 	let session = newSession();
 	const sessionKey = () => `Afterglow.session.${Player.MemberNumber || 0}`;
 	function readSession() {
 		try {
-			const raw = JSON.parse(localStorage.getItem(sessionKey()) || "null");
-			if (raw && Number.isFinite(raw.last) && Date.now() - raw.last < SESSION_GAP_MS) {
+			const raw = /** @type {Record<string, unknown> | null} */ (JSON.parse(localStorage.getItem(sessionKey()) || "null"));
+			if (raw && typeof raw.last === "number" && Number.isFinite(raw.last) && Date.now() - raw.last < SESSION_GAP_MS) {
 				const out = newSession();
-				for (const k of Object.keys(out)) if (Number.isFinite(raw[k]) && raw[k] >= 0) out[k] = raw[k];
+				for (const k of /** @type {(keyof AgSession)[]} */ (Object.keys(out))) {
+					const v = raw[k];
+					if (typeof v === "number" && Number.isFinite(v) && v >= 0) out[k] = v;
+				}
 				return out;
 			}
 		} catch {
@@ -234,15 +292,14 @@
 		}
 	}
 	const logKey = () => `Afterglow.log.${Player.MemberNumber || 0}`;
+	/** @returns {AgLogEntry[]} */
 	function readLog() {
 		try {
-			const raw = JSON.parse(localStorage.getItem(logKey()) || "[]");
-			return Array.isArray(raw)
-				? raw
-					.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && (KINDS[e[1]] || e[1] === "away"))
-					.map((e) => (e[1] === "denied" && e[3] === "edge" ? [e[0], "edged", e[2]] : e)) // before 0.4.0, edges were denials
-					.slice(-LOG_MAX)
-				: [];
+			const raw = /** @type {unknown} */ (JSON.parse(localStorage.getItem(logKey()) || "[]"));
+			if (!Array.isArray(raw)) return [];
+			const list = /** @type {AgLogEntry[]} */ (raw.filter((e) => Array.isArray(e) && Number.isFinite(e[0]) && typeof e[1] === "string" && (e[1] in KINDS || e[1] === "away")));
+			// before 0.4.0, edges were denials
+			return list.map((e) => /** @type {AgLogEntry} */ (e[1] === "denied" && e[3] === "edge" ? [e[0], "edged", e[2]] : e)).slice(-LOG_MAX);
 		} catch {
 			return [];
 		}
@@ -257,6 +314,10 @@
 
 	// ---------- counting ----------
 	const roomName = () => (typeof ChatRoomData !== "undefined" && ChatRoomData?.Name) || "";
+	/**
+	 * @param {AgKind} kind
+	 * @param {string} [how] edge, failed, …
+	 */
 	function record(kind, how) {
 		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber) return;
 		const now = Date.now();
@@ -278,7 +339,7 @@
 			for (const k of STREAK_KEYS) state.streak[k] = 0;
 			state.lastOrgasmAt = now;
 			state.streakStart = now;
-		} else {
+		} else if (kind !== "failed") {
 			state.streak[kind]++;
 			if (state.streak[kind] > state.rec[kind]) state.rec[kind] = state.streak[kind];
 		}
@@ -297,6 +358,7 @@
 	// the edge counts once: again only after a minute without being stopped, or after arousal dropped and came back.
 	let denyHitAt = 0;
 	let dropped = true;
+	/** @param {string | null} how */
 	function denyHit(how) {
 		const now = Date.now();
 		if (dropped || now - denyHitAt > DENY_GAP_MS) record(how === "edge" ? "edged" : "denied");
@@ -320,6 +382,7 @@
 	};
 	// Start or stop the "held for" timers when such an item goes on or comes off. The effect list can be empty for a
 	// moment while the game redraws you, so it has to stay off a few seconds before the timer stops.
+	/** @type {Record<AgHeldKind, number>} */
 	const offSince = { denied: 0, edged: 0, ruined: 0 };
 	function checkHeld() {
 		if (!Player.MemberNumber || loadedFor !== Player.MemberNumber || !Array.isArray(Player.Appearance) || !Player.Appearance.length) return;
@@ -350,6 +413,7 @@
 
 	// Which items cause it: denial (DenialMode), edging (Edged, or crafted Edging) and ruin (RuinOrgasms)
 	const CAUSE = { denied: "DenialMode", edged: "Edged", ruined: "RuinOrgasms" };
+	/** @param {AgHeldKind} k */
 	function causes(k) {
 		const out = [];
 		for (const item of Array.isArray(Player.Appearance) ? Player.Appearance : []) {
@@ -412,8 +476,10 @@
 		ui.render();
 	}
 
+	/** @param {Character | null | undefined} C */
 	const isMe = (C) => !!C && (typeof C.IsPlayer === "function" ? C.IsPlayer() : C === Player);
 	const orgasmTimer = () => Player.ArousalSettings?.OrgasmTimer || 0;
+	/** @param {() => void} fn */
 	const safely = (fn) => {
 		try {
 			fn();
@@ -450,6 +516,7 @@
 	// Full arousal: a denial or edging effect holds you at the edge instead (unless it's a forced, ruined one)
 	mod.hookFunction("ActivityOrgasmPrepare", 0, (args, next) => {
 		const [C, bypass] = args;
+		/** @type {string | null} */
 		let how = null;
 		if (isMe(C))
 			safely(() => {
@@ -458,11 +525,13 @@
 				else if (!bypass && edged()) how = "edge";
 			});
 		const r = next(args);
-		if (how) safely(() => denyHit(how));
+		const hit = how;
+		if (hit) safely(() => denyHit(hit));
 		return r;
 	});
 
 	// ---------- formatting ----------
+	/** @param {number} ms */
 	function fmtSpan(ms) {
 		const s = Math.max(0, Math.floor(ms / 1000));
 		const d = Math.floor(s / 86400);
@@ -472,7 +541,9 @@
 		if (hh) return `${hh}h ${mm}m`;
 		return `${mm}m ${s % 60}s`;
 	}
+	/** @param {number} t */
 	const fmtDay = (t) => new Date(t).toLocaleDateString([], { month: "short", day: "numeric" });
+	/** @param {number} t */
 	const fmtWhen = (t) => {
 		const d = new Date(t);
 		const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -483,30 +554,45 @@
 		start.setHours(0, 0, 0, 0);
 		const out = zeroCounts();
 		for (const e of log)
-			if (e[0] >= start.getTime() && e[1] in out) {
+			if (e[0] >= start.getTime() && e[1] !== "away") {
 				out[e[1]]++;
 				if (e[3] === "failed") out.failed++;
 			}
 		return out;
 	}
 	const sinceText = () => fmtSpan(elapsed(state.streakStart));
+	/** @param {AgKind} k */
 	const allTime = (k) => state.totals[k] + (state.base[k] || 0);
 	// The orgasm clock: { t, exact }. The
 	// stretch starts at install until the first one (exact: false, shown as "≥").
+	/**
+	 * @param {AgKind} k
+	 * @returns {{ t: number, exact: boolean } | null}
+	 */
 	function sinceFor(k) {
 		if (k === "orgasm") return { t: state.streakStart, exact: !!state.lastOrgasmAt };
 		return state.last[k] ? { t: state.last[k], exact: true } : null;
 	}
+	/** @param {number} ms */
 	const edgeText = (ms) => (ms < 1000 ? "—" : ms < 60_000 ? `${Math.floor(ms / 1000)}s` : two(fmtSpan(ms)));
+	/** @param {string} span */
 	const two = (span) => span.split(" ").slice(0, 2).join(" "); // the two largest units: "1d 2h", "4h 0m", "25m 3s"
 	// The big text of a box. Orgasm: time since the last one. Denied / ruined: how long the item has been on you while
 	// one is, otherwise how many this stretch. Resisted: how many this stretch.
 	// short: the dock tab's summary line.
 	// The denied box also stands for edged: while an edging effect is on you it times that.
-	const boxHeld = (k) => (k === "denied" ? (state.held.edged ? "edged" : state.held.denied ? "denied" : null) : state.held[k] ? k : null);
+	/**
+	 * @param {AgKind} k
+	 * @returns {AgHeldKind | null}
+	 */
+	const boxHeld = (k) => (k === "denied" ? (state.held.edged ? "edged" : state.held.denied ? "denied" : null) : (k === "edged" || k === "ruined") && state.held[k] ? k : null);
+	/**
+	 * @param {AgKind} k
+	 * @param {boolean} [short] the dock's one-line summary
+	 */
 	function clockText(k, short = false) {
 		if (k === "orgasm") {
-			const x = sinceFor(k);
+			const x = sinceFor(k) || { t: state.streakStart, exact: false };
 			return `${x.exact ? "" : "≥ "}${fmtSpan(elapsed(x.t))}${short ? " since last orgasm" : ""}`;
 		}
 		if (k === "denied") {
@@ -517,7 +603,8 @@
 			}
 			return short ? `⛔ ${state.streak.denied} denied · 🫠 ${state.streak.edged} edged this stretch` : String(state.streak.denied);
 		}
-		if (state.held[k]) {
+		if (k === "failed") return "";
+		if (k !== "resisted" && state.held[k]) {
 			const span = two(fmtSpan(elapsed(state.held[k])));
 			return short ? `${KINDS[k].icon} held ${span} · ${state.streak[k]} ${KINDS[k].label.toLowerCase()}` : span;
 		}
@@ -532,8 +619,19 @@
 
 	// ---------- panel ----------
 	const ui = (() => {
+		/** @type {BCDockHandle | null} */
 		let panel = null;
+		/** @type {HTMLElement | null} */
 		let root = null;
+		/**
+		 * An element with attributes (class, on<event> listeners, the rest as attributes; null/false left out) and children
+		 * (nodes, text, arrays of them; null/false left out)
+		 * @template {keyof HTMLElementTagNameMap} K
+		 * @param {K} tag
+		 * @param {Record<string, any>} [attrs]
+		 * @param {...any} kids
+		 * @returns {HTMLElementTagNameMap[K]}
+		 */
 		const h = (tag, attrs = {}, ...kids) => {
 			const el = document.createElement(tag);
 			for (const [k, v] of Object.entries(attrs)) {
@@ -600,7 +698,8 @@
 			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no panel");
 			document.head.append(h("style", { id: "ag-style" }, CSS));
 			panel = BCDock.add({ id: "afterglow", title: "Afterglow", icon: "✨", order: 40, version: MOD_INFO.version, width: 220, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => (panel?.isOpen() && lookNow(), render()) });
-			root = panel.body;
+			root = panel.body || null;
+			if (!root) return;
 			root.id = "ag-body";
 			render();
 		}
@@ -616,6 +715,7 @@
 			panel.setVisible(on);
 			if (!on) return;
 			panel.setSummary(clockText(state.show, true));
+			if (!root) return;
 			if (!panel.isOpen()) return root.replaceChildren();
 			const cur = elapsed(state.streakStart);
 			const g = recGap();
@@ -623,7 +723,13 @@
 			const today = todayCounts();
 			const arousalOff = Player.ArousalSettings && Player.ArousalSettings.Active === "Inactive";
 			const nShared = sharedList().length;
+			/**
+			 * @param {string} key
+			 * @param {string} label
+			 * @param {string} [title]
+			 */
 			const tab = (key, label, title) => h("button", { class: view === key ? "act" : "", title, onclick: () => ((view = key), key === "shared" && lookNow(), render()) }, label);
+			/** @type {(HTMLElement | null)[]} */
 			const parts = [
 				h("div", { class: "ag-tabs" }, tab("stats", "Stats"), tab("shared", nShared ? `Shared (${nShared})` : "Shared", "What people in the room share with you"), tab("settings", "⚙", "Settings")),
 			];
@@ -663,7 +769,7 @@
 					h("div", { class: "hint", "data-ag": "game", title: "The number under the game's arousal meter when you zoom in on it. The game saves it when you leave its Preferences screen and with arousal updates in chat rooms, so it can lag behind or start at 0." }, gameCountText()),
 					h(
 						"details",
-						{ ontoggle: (e) => (openLog = e.target.open), open: openLog },
+						{ ontoggle: (/** @type {Event & { target: HTMLDetailsElement }} */ e) => (openLog = e.target.open), open: openLog },
 						h("summary", {}, `Recent (${log.length})`),
 						h(
 							"div",
@@ -674,30 +780,38 @@
 									.reverse()
 									.map((e) =>
 											e[1] === "away"
-												? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(e[3])}`)
+												? h("div", { class: "ag-away" }, `${fmtWhen(e[0])} ⏸ Away ${fmtSpan(Number(e[3]) || 0)}`)
 												: h("div", {}, `${fmtWhen(e[0])} ${KINDS[e[1]].icon} ${KINDS[e[1]].one}${e[3] === "edge" ? " (edged)" : e[3] === "failed" ? ` (${KINDS.failed.icon} resist failed)` : e[3] === "belt" ? " (seen by your belt)" : ""}${e[2] ? ` in ${e[2]}` : ""}`)
 									)
 								: h("div", { class: "hint" }, "Nothing yet.")
 						)
 					)
 				);
-			root.replaceChildren(...parts.filter(Boolean));
+			root.replaceChildren(...parts.filter((x) => x != null));
 		}
 
 		// ---------- views ----------
 		let view = "stats";
 		// Settings sections fold away; which are open is remembered in this browser (Sharing starts open)
 		const uiKey = () => `Afterglow.ui.${Player.MemberNumber || 0}`;
+		/** @type {Record<string, boolean> | null} */
 		let secOpen = null;
+		/** @returns {Record<string, boolean>} */
 		const readSecOpen = () => {
 			if (secOpen) return secOpen;
 			try {
-				secOpen = JSON.parse(localStorage.getItem(uiKey()) || "null") || {};
+				secOpen = /** @type {Record<string, boolean>} */ (JSON.parse(localStorage.getItem(uiKey()) || "null") || {});
 			} catch {
 				secOpen = {};
 			}
 			return secOpen;
 		};
+		/**
+		 * @param {HTMLElement[]} out
+		 * @param {string} key
+		 * @param {string} title
+		 * @param {(o: HTMLElement[]) => void} fill
+		 */
 		function section(out, key, title, fill) {
 			const open = readSecOpen()[key] ?? key === "share";
 			out.push(
@@ -707,7 +821,7 @@
 						class: `ag-sec${open ? " open" : ""}`,
 						"aria-expanded": open ? "true" : "false",
 						onclick: () => {
-							secOpen[key] = !open;
+							readSecOpen()[key] = !open;
 							try {
 								localStorage.setItem(uiKey(), JSON.stringify(secOpen));
 							} catch {
@@ -721,14 +835,16 @@
 				)
 			);
 			if (open) {
+				/** @type {HTMLElement[]} */
 				const inner = [];
 				fill(inner);
 				out.push(h("div", { class: "ag-sec-body" }, inner));
 			}
 		}
 		function settingsView() {
+			/** @type {HTMLElement[]} */
 			const out = [];
-			section(out, "share", "Sharing", (o) => o.push(...shareForm()));
+			section(out, "share", "Sharing", (o) => o.push(...shareForm().filter((x) => x != null)));
 			section(out, "clocks", "Clocks", (o) =>
 				o.push(
 					h(
@@ -737,7 +853,7 @@
 						"Clocks count",
 						h(
 							"select",
-							{ onchange: (e) => ((state.timeMode = e.target.value === "online" ? "online" : "real"), save(), render()) },
+							{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((state.timeMode = e.target.value === "online" ? "online" : "real"), save(), render()) },
 							h("option", { value: "real", selected: state.timeMode === "real" }, "all time"),
 							h("option", { value: "online", selected: state.timeMode === "online" }, "only time online")
 						)
@@ -791,13 +907,13 @@
 					"Belt saw one I didn't",
 					h(
 						"select",
-						{ onchange: (e) => ((state.belt.mode = e.target.value), save(), render()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((state.belt.mode = /** @type {"ask" | "auto" | "off"} */ (e.target.value)), save(), render()) },
 						h("option", { value: "ask", selected: state.belt.mode === "ask" }, "ask me"),
 						h("option", { value: "auto", selected: state.belt.mode === "auto" }, "count it"),
 						h("option", { value: "off", selected: state.belt.mode === "off" }, "ignore")
 					)
 				),
-				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: state.belt.show, onchange: (e) => ((state.belt.show = e.target.checked), save(), render()) }), "Show the belt's own figures"),
+				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: state.belt.show, onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => ((state.belt.show = e.target.checked), save(), render()) }), "Show the belt's own figures"),
 				h("div", { class: "hint" }, "The game's Modular Chastity Belt (and the Techno Chastity Cage) notes your last orgasm while you wear it. Afterglow compares the two, so an orgasm on another computer or before it loaded isn't lost. Its \"held back\" is how many orgasm prompts didn't end in one since your last (resisted or ruined); denial and edging don't count there."),
 				h("div", { class: "hint" }, b ? `Wearing: ${b.name}.` : "You aren't wearing one now.")
 			];
@@ -805,6 +921,7 @@
 		let openLog = false;
 
 		// What people in the room share with you: one card each, clocks kept running by tick
+		/** @param {{ at: number }} x */
 		const ago = (x) => Date.now() - x.at; // since their message arrived
 		const sharedList = () => [...shared].filter(([m]) => charOf(m));
 		function sharedView() {
@@ -814,12 +931,17 @@
 			if (!list.length) return [h("div", { class: "hint" }, "Nobody in this room shares with you yet. Only people with Afterglow can, and only if their permissions let you see.")];
 			return list.map(([m, x]) => sharedCard(m, x));
 		}
+		/**
+		 * @param {number} m
+		 * @param {{ at: number, d: AgStats }} x
+		 */
 		function sharedCard(m, x) {
 			const d = x.d;
 			const c = d.counts;
 			const r = d.records;
-			const held = d.held ? HELD_KEYS.filter((k) => d.held[k]) : [];
-			const line = (o) => KIND_KEYS.filter((k) => o[k]).map((k) => `${KINDS[k].icon} ${o[k]}`).join(" · ") || "none";
+			const dh = d.held;
+			const held = dh ? HELD_KEYS.filter((k) => dh[k]) : [];
+			const line = (/** @type {Partial<Record<AgKind, number>>} */ o) => KIND_KEYS.filter((k) => o[k]).map((k) => `${KINDS[k].icon} ${o[k]}`).join(" · ") || "none";
 			return h(
 				"div",
 				{ class: "ag-share", title: `Shared by ${nameOf(m)}'s Afterglow. Only what their permissions let you see.` },
@@ -839,16 +961,22 @@
 				c ? h("div", { class: "hint" }, `All: ${line(c.all)}`) : null
 			);
 		}
-		const sharedSince = (x) => `${x.d.counts.exact ? "" : "≥ "}${fmtSpan(x.d.counts.since + ago(x))}`;
+		/** @param {{ at: number, d: AgStats }} x */
+		const sharedSince = (x) => x.d.counts ? `${x.d.counts.exact ? "" : "≥ "}${fmtSpan(x.d.counts.since + ago(x))}` : "";
+		/**
+		 * @param {{ at: number, d: AgStats }} x
+		 * @param {AgHeldKind} k
+		 */
 		const sharedHeld = (x, k) => {
-			const hd = x.d.held[k];
+			const hd = x.d.held?.[k];
+			if (!hd) return "";
 			const label = { denied: "⛔ Denied", edged: "🫠 Edged", ruined: "💔 Ruin item on" }[k];
 			const age = hd.age + ago(x);
 			// The same second line as your own boxes: time online, and time actually edged, when they differ by a minute
 			const ex = [];
 			const away = Number.isFinite(hd.away) ? hd.away : 0;
 			if (away >= 60_000) ex.push(`${two(fmtSpan(Math.max(0, age - away)))} online`);
-			if (k === "edged" && Number.isFinite(hd.edging)) {
+			if (k === "edged" && typeof hd.edging === "number" && Number.isFinite(hd.edging)) {
 				const e = hd.edging + ago(x);
 				if (age - away - e >= 60_000) ex.push(`${edgeText(e)} edging`);
 			}
@@ -858,6 +986,10 @@
 		// More → Sharing: who may see what, on the game's own permission ladder
 		function shareForm() {
 			const sh = state.share;
+			/**
+			 * @param {"counts" | "records" | "held"} key
+			 * @param {string} title
+			 */
 			const pick = (key, title) =>
 				h(
 					"label",
@@ -865,14 +997,14 @@
 					h("span", {}, { counts: "Clocks and counts", records: "Records, time edged", held: "Held now, which items" }[key]),
 					h(
 						"select",
-						{ disabled: !sh.on, onchange: (e) => ((sh[key] = e.target.value === "item" || e.target.value === "none" ? e.target.value : Number(e.target.value)), save(), render(), shareSettingsChanged()) },
+						{ disabled: !sh.on, onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((sh[key] = e.target.value === "item" || e.target.value === "none" ? e.target.value : Number(e.target.value)), save(), render(), shareSettingsChanged()) },
 						LEVELS.map(([v, label]) => h("option", { value: String(v), selected: sh[key] === v }, label))
 					)
 				);
-			const permName = (LEVELS.find(([v]) => v === Number(Player.AllowedInteractions ?? Player.ItemPermission ?? 2)) || [0, "?"])[1];
-			const viewers = inRoom() ? ChatRoomCharacter.filter((c) => c && c.MemberNumber !== Player.MemberNumber && ["counts", "records", "held"].some((k) => allowedAt(c, sh[k]))) : [];
+			const permName = (LEVELS.find(([v]) => v === Number(Player.AllowedInteractions ?? 2)) || [0, "?"])[1];
+			const viewers = inRoom() ? ChatRoomCharacter.filter((c) => c && c.MemberNumber !== Player.MemberNumber && /** @type {("counts" | "records" | "held")[]} */ (["counts", "records", "held"]).some((k) => allowedAt(c, sh[k]))) : [];
 			return [
-				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: sh.on, onchange: (e) => ((sh.on = e.target.checked), save(), render(), shareSettingsChanged()) }), "Share my stats"),
+				h("label", { class: "ag-row" }, h("input", { type: "checkbox", checked: sh.on, onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => ((sh.on = e.target.checked), save(), render(), shareSettingsChanged()) }), "Share my stats"),
 				pick("counts", "The clocks and the counts table"),
 				pick("records", "Your longest stretch, the records for one stretch, and time edged"),
 				pick("held", "Whether a denial, edging or ruin item is on you right now, and which"),
@@ -881,13 +1013,14 @@
 				h(
 					"label",
 					{ class: "ag-row", title: "When you open Afterglow in a room, ask everyone there (one hidden message each, to them only) whether they share with you" },
-					h("input", { type: "checkbox", checked: sh.look, onchange: (e) => ((sh.look = e.target.checked), save(), render()) }),
+					h("input", { type: "checkbox", checked: sh.look, onchange: (/** @type {Event & { target: HTMLInputElement }} */ e) => ((sh.look = e.target.checked), save(), render()) }),
 					"Show what others share with me"
 				),
 				h("div", { class: "hint" }, "Asking and answering use hidden messages sent to one person only, never to the room. Only someone with Afterglow can read them."),
 			];
 		}
 		// The other way of counting, when it differs by more than a minute: "1d 4h online" or "2d 3h in all"
+		/** @param {number} t */
 		function otherTime(t) {
 			const away = awayBetween(t, Date.now());
 			if (away < 60_000) return "";
@@ -896,6 +1029,7 @@
 		// Under a held box's timer, the other ways of counting it when they differ by more than a minute: "39m online"
 		// (or "1h 11m in all" when the clocks count only time online), and for edging, how long you were actually edged
 		// since it started ("35m edging", the time the Time edged table adds up)
+		/** @param {AgHeldKind} on */
 		function heldExtra(on) {
 			const t = state.held[on];
 			if (!t) return "";
@@ -907,13 +1041,14 @@
 		// One box. The big one: time since the last orgasm. The small ones (denied, ruined, resisted): how many since
 		// your last orgasm, with the record; denied and ruined turn into a timer while such an item is on you.
 		// Clicking a box shows it on the dock tab's summary (📌).
+		/** @param {AgKind} k */
 		function clockCell(k) {
 			const big = k === "orgasm";
 			const pinned = k === state.show;
 			const on = big ? null : boxHeld(k);
 			const held = !!on;
 			const x = big ? sinceFor(k) : null;
-			const other = big ? otherTime(x.t) : "";
+			const other = big && x ? otherTime(x.t) : "";
 			const lastTxt = state.last[k] ? `last ${fmtWhen(state.last[k])}` : `none yet`;
 			const sub = big
 				? (state.lastOrgasmAt ? `Last one ${fmtWhen(state.lastOrgasmAt)}` : `None seen since Afterglow started counting (${fmtWhen(state.since)})`) + (other ? ` · ${other}` : "")
@@ -923,13 +1058,15 @@
 						? `rec ${state.rec[k]} · ${KINDS.failed.icon} ${allTime("failed")}`
 						: k === "denied"
 							? `rec ${state.rec.denied} · 🫠 ${state.streak.edged}`
-							: `rec ${state.rec[k]}`;
-			const what = { denied: "a denial item", edged: "an edging item", ruined: "a ruin item" }[on || k];
+							: `rec ${k === "ruined" || k === "edged" ? state.rec[k] : ""}`;
+			/** @type {Record<string, string>} */
+			const whatOf = { denied: "a denial item", edged: "an edging item", ruined: "a ruin item" };
+			const what = whatOf[on || k] || "an item";
 			const title = big
 				? `Time since your last orgasm${state.timeMode === "online" ? ", online" : ""}${other ? `; ${other}` : ""}.`
 				: held
 					? `${what[0].toUpperCase()}${what.slice(1)} has been on you since ${fmtWhen(state.held[on])}${causes(on).length ? `: ${causes(on).join(", ")}` : ""}. ${state.streak[on]} ${KINDS[on].label.toLowerCase()} since your last orgasm; the most in one stretch: ${state.rec[on]}.${on === "edged" ? ` Time edged: ${edgeText(session.edgeMs)} this session, ${edgeText(state.edgeMs)} in all.` : ""}`
-					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${state.rec[k]}.${k === "denied" ? ` 🫠 Edged since your last orgasm: ${state.streak.edged} (the most in one stretch: ${state.rec.edged}).` : ""}${what ? ` While ${k === "denied" ? "a denial or edging item" : what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
+					: `${KINDS[k].label} since your last orgasm (${lastTxt}); the most in one stretch: ${k === "failed" ? 0 : state.rec[k]}.${k === "denied" ? ` 🫠 Edged since your last orgasm: ${state.streak.edged} (the most in one stretch: ${state.rec.edged}).` : ""}${what ? ` While ${k === "denied" ? "a denial or edging item" : what} is on you, this shows how long it's been on.` : ""}${k === "resisted" ? ` ${KINDS.failed.icon} ${allTime("failed")} times you tried to resist and came anyway (all time).` : ""}`;
 			return h(
 				"div",
 				{
@@ -945,17 +1082,22 @@
 		}
 
 		// "From before Afterglow": earlier totals, when the last orgasm was, and the longest stretch so far
+		/** @param {number} t */
 		const toInput = (t) => new Date(t - new Date(t).getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 		function startForm() {
+			/**
+			 * @param {number} v
+			 * @param {string} title
+			 */
 			const num = (v, title) => h("input", { type: "number", min: 0, step: 1, value: v || 0, title, style: "width:4.2em" });
-			const totals = KIND_KEYS.map((k) => [k, num(state.base[k], `${KINDS[k].label} before Afterglow started counting`)]);
+			const totals = KIND_KEYS.map((k) => /** @type {[AgKind, HTMLInputElement]} */ ([k, num(state.base[k], `${KINDS[k].label} before Afterglow started counting`)]));
 			const last = h("input", { type: "datetime-local", value: state.lastOrgasmAt ? toInput(state.lastOrgasmAt) : "", max: toInput(Date.now()), style: "width:100%" });
 			const g = state.rec.gap?.manual ? state.rec.gap.ms : 0;
 			const recD = num(Math.floor(g / 86_400_000), "Days");
 			const recH = num(Math.floor((g % 86_400_000) / 3_600_000), "Hours");
 			const note = h("div", { class: "hint" });
 			const apply = () => {
-				const int = (el) => Math.max(0, Math.min(1e6, Math.round(Number(el.value) || 0)));
+				const int = (/** @type {HTMLInputElement} */ el) => Math.max(0, Math.min(1e6, Math.round(Number(el.value) || 0)));
 				for (const [k, el] of totals) state.base[k] = int(el);
 				if (last.value) {
 					const t = new Date(last.value).getTime();
@@ -966,7 +1108,7 @@
 					state.streakStart = t;
 				}
 				const ms = int(recD) * 86_400_000 + int(recH) * 3_600_000;
-				for (const key of ["gap", "gapOnline"]) {
+				for (const key of /** @type {("gap" | "gapOnline")[]} */ (["gap", "gapOnline"])) {
 					const cur = state.rec[key];
 					if (ms > 0 && (!cur || cur.manual || ms > cur.ms)) state.rec[key] = { ms, from: 0, to: 0, exact: true, manual: true };
 					else if (!ms && cur?.manual) state.rec[key] = null;
@@ -990,16 +1132,17 @@
 			if (!panel || !(Player.MemberNumber && loadedFor === Player.MemberNumber)) return;
 			panel.setSummary(clockText(state.show, true));
 			for (const el of root?.querySelectorAll("[data-ag-clock]") || []) {
-				const t = clockText(el.dataset.agClock);
+				const t = clockText(/** @type {AgKind} */ (/** @type {HTMLElement} */ (el).dataset.agClock));
 				if (el.textContent !== t) el.textContent = t;
 			}
 			for (const el of root?.querySelectorAll("[data-ag-extra]") || []) {
-				const t = heldExtra(el.dataset.agExtra);
+				const t = heldExtra(/** @type {AgHeldKind} */ (/** @type {HTMLElement} */ (el).dataset.agExtra));
 				if (el.textContent !== t) el.textContent = t;
 			}
+			/** @type {Record<string, number>} */
 			const edge = { session: session.edgeMs, today: edgeToday(), all: state.edgeMs };
 			for (const el of root?.querySelectorAll("[data-ag-edge]") || []) {
-				const t = edgeText(edge[el.dataset.agEdge]);
+				const t = edgeText(edge[/** @type {HTMLElement} */ (el).dataset.agEdge || ""] || 0);
 				if (el.textContent !== t) el.textContent = t;
 			}
 			const cause = root?.querySelector('[data-ag="cause"]');
@@ -1008,14 +1151,14 @@
 				if (cause.textContent !== t) cause.textContent = t;
 			}
 			for (const el of root?.querySelectorAll("[data-sh-since]") || []) {
-				const x = shared.get(Number(el.dataset.shSince));
+				const x = shared.get(Number(/** @type {HTMLElement} */ (el).dataset.shSince));
 				if (x?.d.counts) {
 					const t = sharedSince(x);
 					if (el.textContent !== t) el.textContent = t;
 				}
 			}
 			for (const el of root?.querySelectorAll("[data-sh-held]") || []) {
-				const [m, k] = el.dataset.shHeld.split("|");
+				const [m, k] = /** @type {[string, AgHeldKind]} */ ((/** @type {HTMLElement} */ (el).dataset.shHeld || "").split("|"));
 				const x = shared.get(Number(m));
 				if (x?.d.held?.[k]) {
 					const t = sharedHeld(x, k);
@@ -1046,7 +1189,7 @@
 		const it = Array.isArray(Player.Appearance) ? Player.Appearance.find((a) => BELTS.includes(a?.Asset?.Name)) : null;
 		if (!it) return null;
 		const p = it.Property || {};
-		const n = (v) => (Number.isFinite(+v) && +v >= 0 ? Math.round(+v) : 0);
+		const n = (/** @type {unknown} */ v) => (Number.isFinite(Number(v)) && Number(v) >= 0 ? Math.round(Number(v)) : 0);
 		const worn = n(p.TimeWorn);
 		const t = n(p.TimeSinceLastOrgasm);
 		// Without TimeWorn (older items), trust the time only once it has counted an orgasm
@@ -1062,6 +1205,7 @@
 		if (known) return b.last > known + BELT_SLACK_MS ? { t: b.last, kind: "missed" } : null;
 		return b.last < state.since ? { t: b.last, kind: "start" } : { t: b.last, kind: "missed" };
 	}
+	/** @param {{ t: number, kind: string }} x */
 	function beltApply(x) {
 		if (!x) return;
 		state.belt.ignored = x.t;
@@ -1094,12 +1238,14 @@
 		ui.render();
 		pushShares();
 	}
+	/** @param {{ t: number, kind: string }} x */
 	function beltIgnore(x) {
 		if (!x) return;
 		state.belt.ignored = x.t;
 		save();
 		ui.render();
 	}
+	/** @type {string | null} */
 	let beltShown = null; // the news on screen, to redraw when it changes
 	let beltCheckAt = 0;
 	function checkBelt() {
@@ -1136,18 +1282,24 @@
 		["none", "Nobody"],
 	];
 	const inRoom = () => typeof CurrentScreen !== "undefined" && CurrentScreen === "ChatRoom" && typeof ChatRoomData !== "undefined" && !!ChatRoomData && typeof ChatRoomCharacter !== "undefined" && Array.isArray(ChatRoomCharacter);
+	/** @param {number} m */
 	const charOf = (m) => (inRoom() ? ChatRoomCharacter.find((c) => c && c.MemberNumber === m) : null);
+	/** @param {number} m */
 	const nameOf = (m) => {
 		const c = charOf(m);
 		return c ? (typeof CharacterNickname === "function" ? CharacterNickname(c) : c.Nickname || c.Name) : `#${m}`;
 	};
 	// The game's own ladder (ServerChatRoomGetAllowItem), at the level you chose; blacklist and ghost list never pass
+	/**
+	 * @param {Character | null | undefined} c
+	 * @param {AgLevel} level
+	 */
 	function allowedAt(c, level) {
 		try {
 			if (!c || typeof c.MemberNumber !== "number" || c.MemberNumber === Player.MemberNumber || level === "none") return false;
 			const P = Player;
 			if (P.HasOnBlacklist?.(c) || P.HasOnGhostlist?.(c)) return false;
-			let lvl = level === "item" ? Number(P.AllowedInteractions ?? P.ItemPermission ?? 2) : Number(level);
+			let lvl = level === "item" ? Number(P.AllowedInteractions ?? 2) : Number(level);
 			if (!Number.isFinite(lvl)) return false;
 			if (P.IsOwnedByCharacter?.(c)) return true;
 			if (lvl <= 1) return true;
@@ -1164,17 +1316,27 @@
 			return false;
 		}
 	}
+	/**
+	 * @param {number} target
+	 * @param {AgMessage} payload
+	 */
 	function send(target, payload) {
 		if (!inRoom() || typeof ServerSend !== "function" || typeof target !== "number") return;
 		try {
-			ServerSend("ChatRoomChat", { Content: MSG, Type: "Hidden", Target: target, Dictionary: [{ message: { v: MSG_V, ...payload } }] });
+			ServerSend("ChatRoomChat", { Content: MSG, Type: "Hidden", Target: target, Dictionary: /** @type {any[]} */ ([{ message: { v: MSG_V, ...payload } }]) });
 		} catch (e) {
 			console.warn(TAG, "send failed", e);
 		}
 	}
 	// One message at a time, a little apart, so opening Afterglow in a full room doesn't flood the server
+	/** @type {{ target: number, payload: AgMessage }[]} */
 	const outbox = [];
-	let outboxTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let outboxTimer;
+	/**
+	 * @param {number} target
+	 * @param {AgMessage} payload
+	 */
 	function queue(target, payload) {
 		const i = outbox.findIndex((o) => o.target === target && o.payload.t === payload.t);
 		if (i >= 0) outbox[i] = { target, payload };
@@ -1182,7 +1344,7 @@
 		if (!outboxTimer) outboxTimer = setTimeout(drain, 0);
 	}
 	function drain() {
-		outboxTimer = null;
+		outboxTimer = undefined;
 		const o = outbox.shift();
 		if (!o) return;
 		send(o.target, o.payload);
@@ -1190,38 +1352,46 @@
 	}
 
 	// --- you, sharing ---
+	/** @type {Map<number, number>} */
 	const watchers = new Map(); // member -> when they last asked
+	/** @type {Set<number>} */
 	const sentTo = new Set(); // members we've sent stats to (and haven't told to stop)
+	/** @type {Map<number, number>} */
 	const askers = new Map(); // member -> when they last asked (whether or not they could see anything)
 	// What this person may see right now (ages in ms, so their clock doesn't need to match yours)
+	/**
+	 * @param {Character} c
+	 * @returns {AgStats | null}
+	 */
 	function statsFor(c) {
 		if (!state.share.on || !loadedFor || loadedFor !== Player.MemberNumber) return null;
 		const now = Date.now();
+		/** @type {AgStats} */
 		const out = { t: "stats", name: Player.Nickname || Player.Name || "" };
 		if (allowedAt(c, state.share.counts)) {
 			out.counts = {
 				since: elapsed(state.streakStart),
 				exact: !!state.lastOrgasmAt,
 				streak: { ...state.streak },
-				session: Object.fromEntries(KIND_KEYS.map((k) => [k, session[k]])),
+				session: /** @type {Record<AgKind, number>} */ (Object.fromEntries(KIND_KEYS.map((k) => [k, session[k]]))),
 				today: todayCounts(),
-				all: Object.fromEntries(KIND_KEYS.map((k) => [k, allTime(k)])),
+				all: /** @type {Record<AgKind, number>} */ (Object.fromEntries(KIND_KEYS.map((k) => [k, allTime(k)]))),
 			};
 		}
 		if (allowedAt(c, state.share.records)) {
 			const g = recGap();
 			out.records = {
 				gap: g ? { ms: g.ms, exact: !!g.exact, manual: !!g.manual } : null,
-				rec: Object.fromEntries(STREAK_KEYS.map((k) => [k, state.rec[k]])),
+				rec: /** @type {Record<AgStreakKind, number>} */ (Object.fromEntries(STREAK_KEYS.map((k) => [k, state.rec[k]]))),
 				edge: { session: session.edgeMs, today: edgeToday(), all: state.edgeMs },
 				online: state.timeMode === "online",
 			};
 		}
 		if (allowedAt(c, state.share.held)) {
-			out.held = {};
+			const held = (out.held = /** @type {Partial<Record<AgHeldKind, AgSharedHeld>>} */ ({}));
 			for (const k of HELD_KEYS)
 				if (state.held[k])
-					out.held[k] = {
+					held[k] = {
 						age: now - state.held[k],
 						away: awayBetween(state.held[k], now),
 						...(k === "edged" && state.heldEdge != null ? { edging: state.heldEdge } : {}),
@@ -1230,6 +1400,7 @@
 		}
 		return out.counts || out.records || out.held ? out : null;
 	}
+	/** @param {number} m */
 	function answer(m) {
 		const c = charOf(m);
 		const stats = c && statsFor(c);
@@ -1244,11 +1415,12 @@
 		queue(m, stats);
 	}
 	// News for whoever is watching (each checked again: a permission can change at any time)
-	let pushTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let pushTimer;
 	function pushShares() {
 		if (!watchers.size || pushTimer) return;
 		pushTimer = setTimeout(() => {
-			pushTimer = null;
+			pushTimer = undefined;
 			const now = Date.now();
 			for (const [m, at] of watchers) {
 				if (now - at > WATCH_MS || !charOf(m)) watchers.delete(m);
@@ -1271,9 +1443,12 @@
 	}
 
 	// --- others sharing with you ---
+	/** @type {Map<number, { at: number, d: AgStats }>} */
 	const shared = new Map(); // member -> { at, d }: what they last sent
+	/** @type {Map<number, number>} */
 	const askedAt = new Map(); // member -> when we last asked
 	let lookOpenedAt = 0;
+	/** @param {boolean} panelOpen */
 	function lookAround(panelOpen) {
 		if (!panelOpen || !state.share.look || !inRoom() || !loadedFor) return;
 		const now = Date.now();
@@ -1293,9 +1468,10 @@
 	function lookNow() {
 		if (Date.now() - lookOpenedAt > 60_000) lookOpenedAt = Date.now();
 	}
+	/** @param {ServerChatRoomMessage} data */
 	function receive(data) {
 		if (!data || data.Type !== "Hidden" || data.Content !== MSG || typeof data.Sender !== "number" || data.Sender === Player.MemberNumber) return;
-		const msg = Array.isArray(data.Dictionary) ? data.Dictionary.find((d) => d && d.message)?.message : null;
+		const msg = Array.isArray(data.Dictionary) ? /** @type {any[]} */ (data.Dictionary).find((d) => d && d.message)?.message : null;
 		if (!msg || typeof msg !== "object" || msg.v !== MSG_V) return;
 		const m = data.Sender;
 		if (msg.t === "ask") {
@@ -1341,7 +1517,7 @@
 	const COMMAND = {
 		Tag: "afterglow",
 		Description: ": Afterglow: open the panel, or 'stats' for a summary only you see",
-		Action: (args) => {
+		Action: (/** @type {string} */ args) => {
 			if (String(args || "").trim().toLowerCase() === "stats") {
 				if (typeof ChatRoomSendLocal === "function") ChatRoomSendLocal(statsLine(), 30_000);
 				return;
@@ -1367,9 +1543,12 @@
 	 * @param {number} ms
 	 */
 	function startTicker(fn, ms) {
+		/** @type {Worker | null} */
 		let worker = null;
+		/** @type {string | null} */
 		let url = null;
-		let fallback = null;
+		/** @type {ReturnType<typeof setInterval> | undefined} */
+		let fallback;
 		const useFallback = () => {
 			if (fallback) return;
 			worker?.terminate();

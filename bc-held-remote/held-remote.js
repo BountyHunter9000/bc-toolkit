@@ -12,13 +12,17 @@
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
 	const MOD_INFO = { name: "BCT_HeldRemote", fullName: "BC Toolkit: Held Remote", version: "0.1.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-held-remote" };
 	const TAG = "[HeldRemote]";
+	/** @param {number} m */
 	const ON_KEY = (m) => `HeldRemote.${m}`;
+	/** @param {number} m */
 	const GRANT_KEY = (m) => `HeldRemote.grant.${m}`;
+	/** @type {{ group: AssetGroupItemName, name: string }} */
 	const HELD = { group: "ItemHandheld", name: "VibeRemote" };
 
 	// Re-running the script (dev reload) replaces the previous instance
 	if (window.HeldRemote && typeof window.HeldRemote.unload === "function") window.HeldRemote.unload();
 
+	/** @param {number} ms */
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof Player === "undefined" || typeof DialogCanUseRemoteState === "undefined" || typeof ChatRoomSyncItem === "undefined")
 		await sleep(250);
@@ -29,10 +33,14 @@
 	// on: switched on for this character (this browser). grant: who left you with the remote, and how:
 	// { by: member number, name, how: "given" | "tied", at: ms }. Both kept in localStorage per character.
 
+	/** @typedef {{ by: number, name: string, how: "given" | "tied" | "relog", at: number }} HeldGrant */
+	/** @type {number | null} */
 	let member = null;
 	let on = false;
+	/** @type {HeldGrant | null} */
 	let grant = null;
 
+	/** @param {string} k */
 	const lsGet = (k) => {
 		try {
 			return localStorage.getItem(k);
@@ -40,6 +48,10 @@
 			return null;
 		}
 	};
+	/**
+	 * @param {string} k
+	 * @param {string | null} v null removes it
+	 */
 	const lsSet = (k, v) => {
 		try {
 			if (v == null) localStorage.removeItem(k);
@@ -49,13 +61,14 @@
 		}
 	};
 
+	/** @param {number | null} m */
 	function load(m) {
 		member = m;
 		on = !!m && lsGet(ON_KEY(m)) === "1";
 		grant = null;
 		if (m) {
 			try {
-				const g = JSON.parse(lsGet(GRANT_KEY(m)) || "null");
+				const g = /** @type {HeldGrant | null} */ (JSON.parse(lsGet(GRANT_KEY(m)) || "null"));
 				if (g && Number.isInteger(g.by) && ["given", "tied", "relog"].includes(g.how)) grant = g;
 			} catch {
 				// missing or unreadable: the defaults stay
@@ -63,6 +76,10 @@
 		}
 	}
 	const saveGrant = () => member && lsSet(GRANT_KEY(member), grant ? JSON.stringify(grant) : null);
+	/**
+	 * @param {HeldGrant | null} g
+	 * @param {string} why for the console
+	 */
 	function setGrant(g, why) {
 		grant = g;
 		saveGrant();
@@ -72,10 +89,12 @@
 
 	// ---------- game helpers ----------
 
+	/** @param {Character} [C] */
 	const holding = (C = Player) => {
 		const it = typeof InventoryGet === "function" ? InventoryGet(C, HELD.group) : null;
 		return it?.Asset?.Name === HELD.name;
 	};
+	/** @param {Character} [C] */
 	const armsBlocked = (C = Player) => typeof C?.CanInteract === "function" && !C.CanInteract();
 	// The remote has to be usable in your hand: mitts and the like that block the hand slot rule it out
 	const handFree = () => {
@@ -86,11 +105,13 @@
 		}
 	};
 	// Vibrators only: the game's vibrating items, and items with a vibration intensity. Shock items never count.
+	/** @param {Item | null | undefined} item */
 	function isVibrator(item) {
 		if (!item?.Asset) return false;
 		if (typeof InventoryItemHasEffect === "function" && InventoryItemHasEffect(item, "ReceiveShock", true)) return false;
 		return item.Asset.Archetype === "vibrating" || typeof item.Property?.Intensity === "number";
 	}
+	/** @param {number} m */
 	function nameOf(m) {
 		const c = typeof ChatRoomCharacter !== "undefined" ? ChatRoomCharacter.find((x) => x.MemberNumber === m) : null;
 		if (!c) return `#${m}`;
@@ -100,6 +121,7 @@
 			return c.Name || `#${m}`;
 		}
 	}
+	/** @param {string} msg */
 	function tell(msg) {
 		if (typeof CurrentScreen !== "undefined" && CurrentScreen === "ChatRoom" && typeof ChatRoomSendLocal === "function") ChatRoomSendLocal(msg, 15_000);
 		console.log(TAG, msg);
@@ -107,6 +129,11 @@
 
 	// The game's checks after "can you use your hands" (Dialog.js, DialogCanUseRemoteState), unchanged: an owner's
 	// rules on remotes, lover-only items, items that block remotes, and owning a remote
+	/**
+	 * @param {Character} C
+	 * @param {Item} Item
+	 * @returns {VibratorRemoteAvailability}
+	 */
 	function remainingChecks(C, Item) {
 		if (C.IsPlayer() && Player.IsFullyOwned() && LogQuery("BlockRemoteSelf", "OwnerRule")) return "RemotesBlocked";
 		if (Item.Asset.LoverOnly) {
@@ -147,16 +174,22 @@
 	//  - the remote is newly in your hand → they gave it to you
 	//  - your arms just got blocked while you hold it → they tied you with it in your hand
 	// Your own changes never count.
+	/**
+	 * @param {unknown} source who made the change (member number)
+	 * @param {{ holding: boolean, blocked: boolean } | null} before
+	 */
 	function noteChange(source, before) {
-		if (!member || !Number.isInteger(source) || source === member || source <= 0) return;
+		if (!member || !before || typeof source !== "number" || !Number.isInteger(source) || source === member || source <= 0) return;
 		const hold = holding();
 		if (!hold) return;
+		/** @type {"given" | "tied" | null} */
 		let how = null;
 		if (!before.holding) how = "given";
 		else if (!before.blocked && armsBlocked()) how = "tied";
 		if (!how) return;
-		setGrant({ by: source, name: nameOf(source), how, at: Date.now() }, "seen in the room");
-		if (on) tell(`🎚 ${grant.name} ${how === "given" ? "put the Vibe Remote in your hand" : "tied you with the Vibe Remote in your hand"}: you can use it on your vibrators.`);
+		const name = nameOf(source);
+		setGrant({ by: source, name, how, at: Date.now() }, "seen in the room");
+		if (on) tell(`🎚 ${name} ${how === "given" ? "put the Vibe Remote in your hand" : "tied you with the Vibe Remote in your hand"}: you can use it on your vibrators.`);
 	}
 	const snapshot = () => ({ holding: holding(), blocked: armsBlocked() });
 
@@ -177,6 +210,7 @@
 		return r;
 	});
 
+	/** @param {() => void} fn */
 	function safely(fn) {
 		try {
 			fn();
@@ -218,6 +252,7 @@
 		if (!grant && holding() && armsBlocked()) setGrant({ by: 0, name: "", how: "relog", at: Date.now() }, "in your hand when you came back");
 	}
 
+	/** @param {boolean} v */
 	function setOn(v) {
 		if (!member) return;
 		on = !!v;
@@ -239,6 +274,7 @@
 	// ---------- dock tab ----------
 
 	const ui = (() => {
+		/** @type {BCDockHandle | null} */
 		let tab = null;
 		let warned = false;
 		function render() {
@@ -266,7 +302,7 @@
 	const COMMAND = {
 		Tag: "heldremote",
 		Description: "[on|off]: let a remote someone left you with work while you're tied (no argument shows the state)",
-		Action: (args) => {
+		Action: (/** @type {string} */ args) => {
 			const a = String(args || "").trim().toLowerCase();
 			if (a === "on") setOn(true);
 			else if (a === "off") setOn(false);

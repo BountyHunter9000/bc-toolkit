@@ -23,6 +23,25 @@
 	// Re-running the script (dev reload) replaces the previous copy
 	if (window.BlackBook && typeof window.BlackBook.unload === "function") window.BlackBook.unload();
 
+	/**
+	 * What's stored (one IndexedDB database per account). Records grow new fields over versions, so older ones may lack some.
+	 * @typedef {{ key: string, owner: number, member: number, name?: string, nickname?: string, data?: any, firstSeen?: number, lastSeen?: number, lastOnline?: number, lastOnlineInfo?: any, onlineSince?: number, lastOffline?: number, lastRoom?: string, lastRoomInfo?: Record<string, any>, modMessages: Record<string, any>, notifyOnline?: boolean, note: string, fav?: boolean, [more: string]: any }} LBBProfile someone you've met: their last snapshot and your notes
+	 * @typedef {{ id: number, owner: number, room: Record<string, any>, start: number, end: number, count: number, members: Record<string, string>, aliases?: string[], colors?: Record<string, string>, closed?: boolean, [more: string]: any }} LBBSession one room visit
+	 * @typedef {{ id?: number, owner: number, session: number, ts: number, type: string, text: string, sender?: number | null, senderName?: string, [more: string]: any }} LBBLine one line logged in a room
+	 * @typedef {{ id?: number, owner?: number, member: number, name?: string, ts: number, dir: string, kind: string, text: string, ext?: string, [more: string]: any }} LBBDm one beep or whisper
+	 * @typedef {{ key: string, owner: number, member: number, name?: string, unread?: number, last?: number, [more: string]: any }} LBBConv a conversation with someone
+	 * @typedef {{ key: string, [more: string]: any }} LBBMeta settings, groups, outfits and the like, by key
+	 * @typedef {{ id: string, name: string, color?: string }} LBBGroup a friend group
+	 * @typedef {{ groups: LBBGroup[], members: Record<string, string[]> }} LBBGroups friend groups, and the groups each member is in
+	 * @typedef {LBBLine | { marker: true, type: string, ts: number, text: string, visit?: number }} LBBLogItem a logged line, or where a visit starts/ends
+	 * @typedef {Map<string, { member: number, color: string }>} LBBPeople the names in a room log, for coloring and linking them
+	 * @typedef {{ Name: string, Group: AssetGroupName, Color?: any, Property?: Record<string, any>, craftName?: string }} LBBPiece a piece of clothing or a restraint, as the game bundles it
+	 * @typedef {{ A: string, G: AssetGroupName, C?: any }} LBBLook one slot of a full look (the wardrobe's Copy format)
+	 * @typedef {{ pieces: LBBPiece[], full: LBBLook[], restraints: LBBPiece[], family: IAssetFamily }} LBBSnapshot an outfit as it was worn
+	 * @typedef {LBBSnapshot & { key: string, id: number, name: string, from: number | null, fromName: string, savedAt: number, fav: boolean }} LBBOutfit a saved outfit
+	 * @typedef {{ name: string, linesEl: HTMLElement, items: LBBLogItem[], sessionIds: Set<number>, visits: LBBSession[], find: string, people?: LBBPeople, starEl?: HTMLElement }} LBBRoomView the room log on screen
+	 */
+	/** @param {number} ms */
 	const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 	while (typeof bcModSdk === "undefined" || typeof ServerSocket === "undefined" || typeof Player === "undefined") await sleep(250);
 
@@ -35,26 +54,40 @@
 	const DB_PREFIX = "BlackBook-"; // one database per account: BlackBook-<member number>
 	const OLD_DB_PREFIX = "FriendMgr-"; // the same data from before the rename, moved over once (see migrateOldDb)
 	const me = () => Player.MemberNumber;
-	const keyFor = (member) => `${Player.MemberNumber}:${member}`;
+	const keyFor = (/** @type {number} */ member) => `${Player.MemberNumber}:${member}`;
 
+	/** @type {IDBDatabase | null} */
 	let db = null;
+	/** @type {number | null} */
 	let dbOwner = null;
+	/** @type {{ owner: number, promise: Promise<IDBDatabase> } | null} */
 	let dbOpening = null; // { owner, promise }
+	/** @type {(() => void)[]} */
 	let dbWaiting = []; // writes that arrived before this account's database was open
 
-	/** @param {IDBRequest} req */
+	/**
+	 * @param {IDBRequest} req
+	 * @returns {Promise<any>}
+	 */
 	const reqDone = (req) =>
 		new Promise((resolve, reject) => {
 			req.onsuccess = () => resolve(req.result);
 			req.onerror = () => reject(req.error instanceof Error ? req.error : new Error("IndexedDB request failed"));
 		});
-	/** @param {IDBTransaction} t */
+	/**
+	 * @param {IDBTransaction} t
+	 * @returns {Promise<void>}
+	 */
 	const txDone = (t) =>
 		new Promise((resolve, reject) => {
 			t.oncomplete = () => resolve();
 			t.onerror = () => reject(t.error instanceof Error ? t.error : new Error("IndexedDB transaction failed"));
 		});
 
+	/**
+	 * @param {number} owner
+	 * @returns {Promise<IDBDatabase>}
+	 */
 	function openAccountDb(owner) {
 		return new Promise((resolve, reject) => {
 			const req = indexedDB.open(`${DB_PREFIX}${owner}`, DB_VERSION);
@@ -107,6 +140,10 @@
 	// Everything is copied as is, the copy is checked store by store, and only then is the old database deleted.
 	// If anything goes wrong the old database is left alone and the move is tried again at the next login.
 	const STORES = ["profiles", "sessions", "roomMsgs", "dms", "convs", "meta"];
+	/**
+	 * @param {IDBDatabase} d
+	 * @param {number} owner
+	 */
 	async function migrateOldDb(d, owner) {
 		const meta = () => d.transaction("meta").objectStore("meta");
 		if (await reqDone(meta().get("migrated"))) return;
@@ -138,7 +175,7 @@
 			for (const name of STORES) {
 				if (!old.objectStoreNames.contains(name)) continue;
 				const rows = await reqDone(old.transaction(name).objectStore(name).getAll());
-				counts[name] = rows.length;
+				/** @type {Record<string, number>} */ (counts)[name] = rows.length;
 				if (!rows.length) continue;
 				const t = d.transaction(name, "readwrite");
 				for (const r of rows) t.objectStore(name).put(r);
@@ -216,6 +253,7 @@
 	}
 
 	// Per-account preferences, kept in the meta store and edited on the Settings page
+	/** @type {Record<string, boolean | number>} */
 	const PREF_DEFAULTS = {
 		// recording
 		logRooms: true, // room visits and every chat line in them
@@ -251,6 +289,7 @@
 		cmdBook: true,
 		cmdChat: true,
 	};
+	/** @type {Record<string, any>} */
 	let prefs = { ...PREF_DEFAULTS };
 
 	function savePrefs() {
@@ -265,6 +304,10 @@
 		ui.syncTabVisibility();
 	}
 
+	/**
+	 * @param {string} key
+	 * @param {boolean | number} value
+	 */
 	function setPref(key, value) {
 		prefs[key] = value;
 		savePrefs();
@@ -274,35 +317,62 @@
 	}
 
 	// Runs fn right away if this account's database is open, otherwise as soon as it is
+	/** @param {() => void} fn */
 	function withDb(fn) {
 		if (db && dbOwner === me()) return fn();
 		dbWaiting.push(fn);
 		ensureDb().catch(() => {});
 	}
 
+	// The open database (writes only start once ensureDb() has opened it)
+	const openDb = () => {
+		if (!db) throw new Error("the database isn't open");
+		return db;
+	};
+	/**
+	 * @param {string} name
+	 * @param {IDBTransactionMode} [mode]
+	 */
 	const storeOf = (name, mode = "readonly") => {
 		// Settings, groups, favorites, pins and outfits live in meta/convs: a write there may need syncing
 		if (mode === "readwrite" && (name === "meta" || name === "convs")) markSyncDirty();
-		return db.transaction(name, mode).objectStore(name);
+		return openDb().transaction(name, mode).objectStore(name);
 	};
 
+	/**
+	 * @param {IDBTransactionMode} mode
+	 * @param {(store: IDBObjectStore) => IDBRequest | void} fn
+	 * @returns {Promise<any>}
+	 */
 	const tx = async (mode, fn) => {
 		await ensureDb();
 		return new Promise((resolve, reject) => {
-			/** @type {IDBTransaction} */
+			if (!db) return reject(new Error("the database isn't open"));
 			const t = db.transaction("profiles", mode);
 			const req = fn(t.objectStore("profiles"));
 			t.oncomplete = () => resolve(req ? req.result : undefined);
 			t.onerror = () => reject(t.error instanceof Error ? t.error : new Error("IndexedDB transaction failed"));
 		});
 	};
+	/**
+	 * @param {string} key
+	 * @returns {Promise<LBBProfile | undefined>}
+	 */
 	const dbGet = (key) => tx("readonly", (s) => s.get(key));
-	const dbPut = (rec) => tx("readwrite", (s) => s.put(rec));
-	const dbDelete = (key) => tx("readwrite", (s) => s.delete(key));
+	const dbPut = (/** @type {LBBProfile} */ rec) => tx("readwrite", (s) => s.put(rec));
+	const dbDelete = (/** @type {string} */ key) => tx("readwrite", (s) => s.delete(key));
+	/**
+	 * @param {number} owner
+	 * @returns {Promise<LBBProfile[]>}
+	 */
 	const dbAllForOwner = (owner) => tx("readonly", (s) => s.index("owner").getAll(owner));
 
 	// Writes go through one queue so read-modify-write updates never interleave
 	let writeChain = Promise.resolve();
+	/**
+	 * @param {number} member
+	 * @param {(rec: LBBProfile) => void} mutate
+	 */
 	function updateRecord(member, mutate) {
 		writeChain = writeChain
 			.then(async () => {
@@ -319,29 +389,35 @@
 
 	// ---------- profile capture ----------
 
+	/** @type {Map<number, any>} */
 	let onlineFriends = new Map();
 	let onlineFriendsAt = 0;
 
 	// Room settings from the last full room sync; partial syncs only carry the changed character
+	/** @type {Record<string, any> | null} */
 	let syncedRoom = null;
 	const ROOM_FIELDS = ["Name", "Description", "Background", "Space", "Language", "Limit", "Private", "Locked", "Game", "Visibility", "Access", "BlockCategory"];
 
+	/** @param {any} data a room as the server sends it */
 	function roomInfoFrom(data) {
+		/** @type {Record<string, any>} */
 		const room = {};
 		for (const k of ROOM_FIELDS) if (data[k] !== undefined) room[k] = JSON.parse(JSON.stringify(data[k]));
 		if (Array.isArray(data.Admin)) room.AdminCount = data.Admin.length;
 		return room;
 	}
 
+	/** @param {any} data */
 	function rememberRoom(data) {
 		const room = roomInfoFrom(data);
 		syncedRoom = { ...(syncedRoom && syncedRoom.Name === room.Name ? syncedRoom : {}), ...room };
 	}
 
+	/** @param {any} c a character as the server sends it */
 	function captureCharacter(c) {
 		if (!prefs.captureProfiles || !c || typeof c.MemberNumber !== "number" || !Array.isArray(c.Appearance)) return;
 		// Snapshot synchronously: the game mutates these objects once its own handler runs
-		const snap = JSON.parse(JSON.stringify(c));
+		const snap = /** @type {any} */ (JSON.parse(JSON.stringify(c)));
 		// ChatRoomSync always arrives before the member events of that room, so this is the room they're in
 		const room = syncedRoom ? { ...syncedRoom } : null;
 		updateRecord(c.MemberNumber, (rec) => {
@@ -357,7 +433,9 @@
 	// Items put on or changed on someone already in the room arrive as single-item updates (ChatRoomSyncItem),
 	// not as a full character. Once the game has applied and validated one, copy that person's whole appearance
 	// into their snapshot so ropes, tightness, locks and options stay current.
+	/** @type {Map<number, ReturnType<typeof setTimeout>>} */
 	const appearanceRefreshTimers = new Map();
+	/** @param {number} member */
 	function refreshAppearanceSoon(member) {
 		if (!prefs.captureProfiles || !prefs.refreshAppearance || typeof member !== "number") return;
 		clearTimeout(appearanceRefreshTimers.get(member));
@@ -377,12 +455,14 @@
 		);
 	}
 
+	/** @param {ServerChatRoomMessage} msg */
 	function captureHidden(msg) {
 		if (!prefs.captureAddonMsgs || msg.Sender === Player.MemberNumber || typeof msg.Content !== "string") return;
 		const json = JSON.stringify(msg);
 		if (json.length > MAX_HIDDEN_MSG_CHARS) return;
 		const snap = JSON.parse(json);
 		const known = typeof ChatRoomCharacter !== "undefined" ? ChatRoomCharacter.find((ch) => ch.MemberNumber === msg.Sender) : null;
+		if (typeof msg.Sender !== "number") return;
 		updateRecord(msg.Sender, (rec) => {
 			if (!rec.name && known) rec.name = known.Name;
 			rec.modMessages = rec.modMessages || {};
@@ -394,6 +474,7 @@
 	// (lastOnline), when this time online started (onlineSince, if we saw it start) and when we noticed them gone
 	// (lastOffline). The query runs every few minutes (more often while the window is open), so times are that close.
 	const ONLINE_SAME_SESSION_MS = 10 * 60_000; // seen online this recently before a reload: still the same time online
+	/** @param {any[]} result */
 	function captureOnlineFriends(result) {
 		const before = onlineFriendsAt ? onlineFriends : null; // the first answer after login is the starting point
 		onlineFriends = new Map(result.map((f) => [f.MemberNumber, f]));
@@ -406,7 +487,7 @@
 					if (!rec.name) rec.name = f.MemberName;
 					const prev = Math.max(rec.lastOnline || 0, rec.lastSeen || 0);
 					// Came online since the last answer; or, on the first answer, unknown unless they were online just before
-					if (before ? !before.has(f.MemberNumber) : !(prev && now - prev < ONLINE_SAME_SESSION_MS && (rec.lastOffline || 0) < prev)) rec.onlineSince = before ? now : null;
+					if (before ? !before.has(f.MemberNumber) : !(prev && now - prev < ONLINE_SAME_SESSION_MS && (rec.lastOffline || 0) < prev)) rec.onlineSince = before ? now : undefined;
 					rec.lastOnline = now;
 					rec.lastOnlineInfo = f;
 				}).catch((err) => console.warn(TAG, err));
@@ -427,10 +508,12 @@
 		return CurrentScreen === "ChatRoom";
 	}
 
+	/** @param {number} member */
 	function friendNameOf(member) {
 		return Player.FriendNames instanceof Map ? Player.FriendNames.get(member) : undefined;
 	}
 
+	/** @param {number} member */
 	function nameOf(member) {
 		if (typeof member !== "number") return "";
 		const c = typeof ChatRoomCharacter !== "undefined" ? ChatRoomCharacter.find((x) => x.MemberNumber === member) : null;
@@ -440,13 +523,15 @@
 
 	// Room names linked by renames seen while you were in the room, mapped to the latest name of each chain:
 	// Map(any name in the chain → name of the most recently seen visit)
+	/** @param {LBBSession[]} list */
 	function buildNameGroups(list) {
+		/** @type {Map<string, string>} */
 		const parent = new Map();
-		const find = (n) => {
-			while (parent.get(n) !== n) n = parent.get(n);
+		const find = (/** @type {string} */ n) => {
+			while (parent.get(n) !== n) n = /** @type {string} */ (parent.get(n));
 			return n;
 		};
-		const add = (n) => parent.has(n) || parent.set(n, n);
+		const add = (/** @type {string} */ n) => parent.has(n) || parent.set(n, n);
 		for (const s of list) {
 			const n = s.room?.Name;
 			if (!n) continue;
@@ -458,14 +543,16 @@
 				if (ra !== rn) parent.set(ra, rn);
 			}
 		}
+		/** @type {Map<string, { name: string, at: number }>} */
 		const latest = new Map(); // root → { name, at }
 		for (const s of list) {
 			const n = s.room?.Name;
 			if (!n) continue;
 			const root = find(n);
 			const at = s.end || s.start || 0;
-			if (!latest.has(root) || latest.get(root).at < at) latest.set(root, { name: n, at });
+			if ((latest.get(root)?.at ?? -1) < at) latest.set(root, { name: n, at });
 		}
+		/** @type {Map<string, string>} */
 		const out = new Map();
 		for (const n of parent.keys()) out.set(n, latest.get(find(n))?.name || n);
 		return out;
@@ -473,10 +560,14 @@
 
 	// ---------- chat: room sessions and lines ----------
 
+	/** @type {LBBSession | null} */
 	let session = null; // the room visit being logged: { id, owner, room, start, end, count, members, closed }
 	let resuming = false;
+	/** @type {LBBLine[]} */
 	let lineQueue = [];
-	let lineFlushTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let lineFlushTimer;
+	/** @type {[string, number][]} */
 	const recentLines = []; // [key, ts] of lately logged lines, to drop duplicates when the log is redrawn
 
 	function saveSession() {
@@ -508,9 +599,19 @@
 		BlockCategory: "Blocked categories",
 		AdminCount: "Admins",
 	};
-	const roomValue = (v) => (Array.isArray(v) ? v.join(", ") || "none" : typeof v === "boolean" ? (v ? "yes" : "no") : v == null || v === "" ? "—" : String(v));
+	/** @param {unknown} v a room setting: text, a number, yes/no or a list */
+	const roomValue = (v) => {
+		const one = (/** @type {unknown} */ x) => (typeof x === "string" || typeof x === "number" ? String(x) : JSON.stringify(x));
+		if (Array.isArray(v)) return v.map(one).join(", ") || "none";
+		if (typeof v === "boolean") return v ? "yes" : "no";
+		return v == null || v === "" ? "—" : one(v);
+	};
 
 	// Human-readable differences between two room snapshots; fields missing from `after` are left alone
+	/**
+	 * @param {Record<string, any>} before
+	 * @param {Record<string, any>} after
+	 */
 	function roomChanges(before, after) {
 		const out = [];
 		const settings = [];
@@ -524,6 +625,11 @@
 	}
 
 	// Room changes are stored as ordinary log lines so they show up in history, search and exports
+	/**
+	 * @param {string[]} changes
+	 * @param {string} prefix
+	 * @param {number} [sender]
+	 */
 	function logRoomChanges(changes, prefix, sender) {
 		if (!prefs.logRoomChanges || !session || session.closed || !changes.length) return;
 		const who = typeof sender === "number" ? nameOf(sender) : "";
@@ -541,11 +647,12 @@
 		if (!lineFlushTimer) lineFlushTimer = setTimeout(flushLines, 500);
 	}
 
+	/** @param {LBBSession} s */
 	async function noteChangesSinceLastVisit(s) {
 		try {
 			await ensureDb();
 			const all = await reqDone(storeOf("sessions").index("owner").getAll(s.owner));
-			const prev = all.filter((x) => x.id !== s.id && x.room?.Name === s.room.Name).sort((a, b) => b.start - a.start)[0];
+			const prev = /** @type {LBBSession[]} */ (all).filter((x) => x.id !== s.id && x.room?.Name === s.room.Name).sort((a, b) => b.start - a.start)[0];
 			if (prev && session === s) logRoomChanges(roomChanges(prev.room, s.room), `Changed since your last visit (${fmtDate(prev.end)})`);
 		} catch (e) {
 			console.warn(TAG, "room comparison failed", e);
@@ -553,12 +660,20 @@
 	}
 
 	// Name and label colour of everyone seen in this visit, for the log's name highlighting
+	/** @param {any} c */
+	/** @param {any} c */
 	function rememberMember(c) {
+		if (!session) return;
 		session.members[c.MemberNumber] = c.Nickname || c.Name;
 		session.colors = session.colors || {};
 		if (typeof c.LabelColor === "string") session.colors[c.MemberNumber] = c.LabelColor;
 	}
 
+	/**
+	 * @param {any} data the room
+	 * @param {any[]} characters
+	 * @param {boolean} [checkedResume]
+	 */
 	function onRoomSync(data, characters, checkedResume = false) {
 		const room = roomInfoFrom(data);
 		if (!room.Name || !me()) return;
@@ -573,9 +688,9 @@
 		if (!session || session.closed || session.room.Name !== room.Name || session.owner !== me()) {
 			closeSession();
 			const now = Date.now();
-			session = { id: now, owner: me(), room, start: now, end: now, count: 0, members: {}, colors: {}, closed: false };
+			const started = (session = { id: now, owner: me(), room, start: now, end: now, count: 0, members: {}, colors: {}, closed: false });
 			ui.onSessionStarted({ ...session });
-			noteChangesSinceLastVisit(session).catch((err) => console.warn(TAG, err));
+			noteChangesSinceLastVisit(started).catch((err) => console.warn(TAG, err));
 		} else {
 			logRoomChanges(roomChanges(session.room, room), "Room changed");
 			session.room = { ...session.room, ...room };
@@ -591,9 +706,9 @@
 		try {
 			await ensureDb();
 			const all = await reqDone(storeOf("sessions").index("owner").getAll(me()));
-			const last = all.sort((a, b) => b.start - a.start)[0];
+			const last = /** @type {LBBSession[]} */ (all).sort((a, b) => b.start - a.start)[0];
 			// Only a visit that ended without leaving (page closed, reload, disconnect) is continued
-			if (last && !last.closed && last.room?.Name === data.Name && Date.now() - last.end < SESSION_RESUME_MS) session = { ...last, closed: false };
+			if (last && !last.closed && last.room?.Name === data?.Name && Date.now() - last.end < SESSION_RESUME_MS) session = { ...last, closed: false };
 			onRoomSync(data, characters, true);
 		} catch (e) {
 			console.warn(TAG, "session resume failed", e);
@@ -602,7 +717,9 @@
 		}
 	}
 
+	/** @type {Element | null} */
 	let observedLog = null;
+	/** @type {MutationObserver | null} */
 	let logObserver = null;
 
 	// The chat log element is recreated per room, so re-attach whenever it changes
@@ -614,19 +731,21 @@
 		if (!el) return;
 		logObserver = new MutationObserver((muts) => {
 			// Give other add-ons a moment to decorate the line before reading it
-			for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) setTimeout(() => captureLine(n), 50);
+			for (const m of muts) for (const n of m.addedNodes) if (n instanceof HTMLElement) setTimeout(() => captureLine(n), 50);
 		});
 		logObserver.observe(el, { childList: true });
-		for (const n of el.children) captureLine(n);
+		for (const n of el.children) if (n instanceof HTMLElement) captureLine(n);
 	}
 
 	const LINE_TYPES = ["Whisper", "Chat", "Emote", "Activity", "Action", "LocalMessage", "ServerMessage"];
 
+	/** @param {HTMLElement} el */
 	function lineType(el) {
 		for (const t of LINE_TYPES) if (el.classList.contains(`ChatMessage${t}`)) return t;
 		return "Other";
 	}
 
+	/** @param {HTMLElement} el */
 	function lineText(el) {
 		let text = (el.innerText || "").trim();
 		const time = el.dataset.time;
@@ -634,36 +753,38 @@
 		return text;
 	}
 
+	/** @param {HTMLElement} el */
 	function captureLine(el) {
 		if (!session || session.closed || !el.classList?.contains("ChatMessage") || el.classList.contains("chat-room-sep") || el.dataset.fmLogged) return;
 		el.dataset.fmLogged = "1";
 		const text = lineText(el);
 		if (!text) return;
 		const type = lineType(el);
-		const sender = parseInt(el.dataset.sender, 10) || null;
+		const sender = parseInt(el.dataset.sender || "", 10) || null;
 		const key = `${sender}|${type}|${text}`;
 		const now = Date.now();
 		if (recentLines.some(([k, t]) => k === key && now - t < 1500)) return;
 		recentLines.push([key, now]);
 		if (recentLines.length > 40) recentLines.shift();
-		lineQueue.push({ session: session.id, owner: session.owner, ts: now, type, sender, senderName: nameOf(sender), text });
+		lineQueue.push({ session: session.id, owner: session.owner, ts: now, type, sender, senderName: sender ? nameOf(sender) : "", text });
 		if (!lineFlushTimer) lineFlushTimer = setTimeout(flushLines, 500);
 	}
 
 	function flushLines() {
 		clearTimeout(lineFlushTimer);
-		lineFlushTimer = null;
+		lineFlushTimer = undefined;
 		const batch = lineQueue;
 		lineQueue = [];
 		if (!batch.length) return;
-		const mine = session ? batch.filter((m) => m.session === session.id) : [];
-		if (mine.length) {
-			session.count += mine.length;
-			session.end = mine[mine.length - 1].ts;
+		const cur = session;
+		const mine = cur ? batch.filter((m) => m.session === cur.id) : [];
+		if (cur && mine.length) {
+			cur.count += mine.length;
+			cur.end = mine[mine.length - 1].ts;
 		}
-		const snap = mine.length ? { ...session, members: { ...session.members }, colors: { ...session.colors } } : null;
+		const snap = cur && mine.length ? { ...cur, members: { ...cur.members }, colors: { ...cur.colors } } : null;
 		withDb(() => {
-			const t = db.transaction(["roomMsgs", "sessions"], "readwrite");
+			const t = openDb().transaction(["roomMsgs", "sessions"], "readwrite");
 			const store = t.objectStore("roomMsgs");
 			for (const m of batch) store.add(m);
 			if (snap) t.objectStore("sessions").put(snap);
@@ -675,6 +796,7 @@
 	// ---------- chat: beeps and whispers ----------
 
 	// Beeps carry the game's metadata (message id, colour, reply/reaction) after a separator character
+	/** @param {unknown} raw */
 	function parseBeepMessage(raw) {
 		if (typeof raw !== "string") return { text: "", meta: null };
 		try {
@@ -688,12 +810,13 @@
 		return { text: raw, meta: null };
 	}
 
+	/** @param {LBBDm} rec */
 	function addDm(rec) {
 		if (!prefs.logChats || !me() || typeof rec.member !== "number") return;
 		rec.owner = me();
 		const key = `${rec.owner}:${rec.member}`;
 		withDb(() => {
-			const t = db.transaction(["dms", "convs"], "readwrite");
+			const t = openDb().transaction(["dms", "convs"], "readwrite");
 			t.objectStore("dms").add(rec);
 			const convs = t.objectStore("convs");
 			const req = convs.get(key);
@@ -722,6 +845,7 @@
 
 	// A friend you flagged with 🔔 came online: a desktop notification while the game tab is in the background,
 	// otherwise a line in your chat that only you see
+	/** @param {any} f a friend as the server lists them */
 	function notifyOnline(f) {
 		if (!prefs.notifyOnline || !bells.has(f.MemberNumber)) return;
 		const name = f.MemberName || `#${f.MemberNumber}`;
@@ -753,6 +877,7 @@
 	};
 	// Members flagged 🔔 on this account (kept here, outside the panel, so it works with the panel closed)
 	let bells = new Set();
+	/** @type {number | null} */
 	let bellsFor = null;
 	function loadBells() {
 		const owner = me();
@@ -764,6 +889,7 @@
 	const watchedOnline = () => prefs.notifyOnline && bells.size > 0;
 
 	// Desktop notification for incoming messages while the game tab is in the background
+	/** @param {LBBDm} rec */
 	function notifyDm(rec) {
 		if (rec.dir !== "in" || !notAtGame() || !canNotify()) return;
 		const isWhisper = rec.kind === "whisper";
@@ -779,6 +905,10 @@
 		};
 	}
 
+	/**
+	 * @param {any} data the beep
+	 * @param {"in" | "out"} dir
+	 */
 	function captureBeep(data, dir) {
 		if (!data || typeof data.MemberNumber !== "number" || (data.BeepType && data.BeepType !== "")) return;
 		const { text, meta } = parseBeepMessage(data.Message);
@@ -796,6 +926,7 @@
 
 	// The game's friend list keeps its own unread flag per beep (shown as red unread counts on its Beeps
 	// chats). Reading the conversation here clears those too, using the same rule as the game's own reader.
+	/** @param {number} member */
 	function markGameBeepsRead(member) {
 		if (!prefs.syncGameRead || typeof FriendListBeepLog === "undefined" || !Array.isArray(FriendListBeepLog)) return;
 		member = Number(member);
@@ -818,6 +949,7 @@
 	}
 
 	// The game's friend list only redraws on its own events; if it's open, redraw it after we change its beep log
+	/** @param {number} [member] */
 	function refreshGameFriendList(member) {
 		try {
 			if (typeof CurrentScreen === "undefined" || CurrentScreen !== "FriendList") return;
@@ -831,18 +963,29 @@
 	/** Unread beeps as the game sees them (for checking the read sync from the console) */
 	function gameUnread() {
 		if (typeof FriendListBeepLog === "undefined") return null;
+		/** @type {Record<number, number>} */
 		const out = {};
 		for (const b of FriendListBeepLog) {
-			if (b && !b.Sent && b.Read === false && (typeof FriendListBeepIsUnread !== "function" || FriendListBeepIsUnread(b))) out[b.MemberNumber] = (out[b.MemberNumber] || 0) + 1;
+			if (b && !b.Sent && b.Read === false && typeof b.MemberNumber === "number" && (typeof FriendListBeepIsUnread !== "function" || FriendListBeepIsUnread(b))) out[b.MemberNumber] = (out[b.MemberNumber] || 0) + 1;
 		}
 		return out;
 	}
 
+	/**
+	 * @param {number} member
+	 * @param {string} text
+	 * @param {"in" | "out"} dir
+	 */
 	function captureWhisper(member, text, dir) {
 		if (typeof member !== "number" || typeof text !== "string") return;
 		addDm({ member, name: nameOf(member), ts: Date.now(), dir, kind: "whisper", text, meta: null, room: currentRoomName() });
 	}
 
+	/**
+	 * @param {number} member
+	 * @param {string} text
+	 * @param {boolean} includeRoom
+	 */
 	function sendBeep(member, text, includeRoom) {
 		if (typeof ServerSendBeepMessage === "function") {
 			ServerSendBeepMessage(member, text, { includeRoom });
@@ -857,7 +1000,7 @@
 	// hand WCE a plain copy through ServerSend, and the hook below stops that copy before it reaches the server.
 	const WCE_IM_COPY = "__fmWceImCopy";
 	mod.hookFunction("ServerSend", -100, (args, next) => {
-		if (args[0] === "AccountBeep" && args[1]?.[WCE_IM_COPY]) return;
+		if (args[0] === "AccountBeep" && /** @type {any} */ (args[1])?.[WCE_IM_COPY]) return;
 		return next(args);
 	});
 	// The copy must never reach the server as a second beep, so it's only made while the hook above is in place
@@ -870,11 +1013,15 @@
 			return false;
 		}
 	}
+	/**
+	 * @param {number} member
+	 * @param {string} text
+	 */
 	function showSentBeepInWceIm(member, text) {
 		if (!document.getElementById("bce-instant-messenger") || typeof ServerSend !== "function") return;
 		if (!ourBeepBlockerActive()) return;
 		try {
-			ServerSend("AccountBeep", { MemberNumber: member, BeepType: "", IsSecret: true, Message: text, [WCE_IM_COPY]: true });
+			ServerSend("AccountBeep", /** @type {ServerAccountBeepRequest} */ ({ MemberNumber: member, BeepType: "", IsSecret: true, Message: text, [WCE_IM_COPY]: true }));
 		} catch (e) {
 			console.warn(TAG, "couldn't add the sent beep to WCE's messenger", e);
 		}
@@ -882,6 +1029,10 @@
 
 	// The game's /beep command writes "Beep to …" into the chat room log; sending through
 	// ServerSendBeepMessage doesn't, so add the same line (same look, reply arrow and link) ourselves.
+	/**
+	 * @param {number} target
+	 * @param {string} msg
+	 */
 	function showSentBeepInChat(target, msg) {
 		if (typeof CurrentScreen === "undefined" || CurrentScreen !== "ChatRoom" || typeof ChatRoomAppendChat !== "function") return;
 		const targetName = Player.FriendNames?.get?.(target) || nameOf(target) || `#${target}`;
@@ -931,12 +1082,13 @@
 	// Beeps to offline players are dropped by the server, so these wait in the account's meta store ("outbox:<id>")
 	// and go out once the person shows up in the online-friends list or walks into your room. Needs the game open.
 
+	/** @type {LBBMeta[]} */
 	let outbox = [];
 	let delivering = false;
 	const OUTBOX_POLL_MS = 60_000;
 
 	async function loadOutbox() {
-		outbox = (await reqDone(storeOf("meta").getAll(IDBKeyRange.bound("outbox:", "outbox:￿")))).sort((a, b) => a.createdAt - b.createdAt);
+		outbox = (await reqDone(storeOf("meta").getAll(IDBKeyRange.bound("outbox:", "outbox:￿")))).sort((/** @type {LBBMeta} */ a, /** @type {LBBMeta} */ b) => a.createdAt - b.createdAt);
 	}
 
 	function reachableNow() {
@@ -944,6 +1096,11 @@
 		return new Set([...onlineFriends.keys(), ...here]);
 	}
 
+	/**
+	 * @param {number} member
+	 * @param {string} text
+	 * @param {boolean} includeRoom
+	 */
 	async function queueMessage(member, text, includeRoom) {
 		await ensureDb();
 		const createdAt = Date.now();
@@ -954,6 +1111,7 @@
 		requestOnlineFriends();
 	}
 
+	/** @param {string} key */
 	async function cancelQueued(key) {
 		await ensureDb();
 		await reqDone(storeOf("meta", "readwrite").delete(key));
@@ -999,9 +1157,9 @@
 			let removed = 0;
 			if (prefs.roomLogDays > 0) {
 				const cutoff = Date.now() - prefs.roomLogDays * DAY_MS;
-				const old = (await reqDone(storeOf("sessions").index("owner").getAll(owner))).filter((x) => (x.end || x.start) < cutoff && x.id !== session?.id);
+				const old = (await reqDone(storeOf("sessions").index("owner").getAll(owner))).filter((/** @type {LBBSession} */ x) => (x.end || x.start) < cutoff && x.id !== session?.id);
 				for (const v of old) {
-					const t = db.transaction(["sessions", "roomMsgs"], "readwrite");
+					const t = openDb().transaction(["sessions", "roomMsgs"], "readwrite");
 					const keys = await reqDone(t.objectStore("roomMsgs").index("session").getAllKeys(v.id));
 					for (const k of keys) t.objectStore("roomMsgs").delete(k);
 					t.objectStore("sessions").delete(v.id);
@@ -1011,7 +1169,7 @@
 			}
 			if (prefs.chatDays > 0) {
 				const cutoff = Date.now() - prefs.chatDays * DAY_MS;
-				const t = db.transaction(["dms", "convs"], "readwrite");
+				const t = openDb().transaction(["dms", "convs"], "readwrite");
 				const keys = await reqDone(t.objectStore("dms").index("ownerTs").getAllKeys(IDBKeyRange.bound([owner, 0], [owner, cutoff])));
 				for (const k of keys) t.objectStore("dms").delete(k);
 				// Conversations with nothing left go too, unless pinned or unread
@@ -1029,6 +1187,7 @@
 		}
 	}
 
+	/** @type {Record<string, string[]>} */
 	const DATA_KINDS = {
 		rooms: ["sessions", "roomMsgs"],
 		chats: ["dms", "convs"],
@@ -1038,16 +1197,19 @@
 	// Row counts per kind of data for this account, plus what the browser says this site uses in total
 	async function storageStats() {
 		await ensureDb();
-		const count = (name) => reqDone(storeOf(name).count());
+		const count = (/** @type {string} */ name) => reqDone(storeOf(name).count());
 		const [sessions, roomMsgs, dms, convs, profiles, meta] = await Promise.all(["sessions", "roomMsgs", "dms", "convs", "profiles", "meta"].map(count));
 		// The browser only reports the whole site (the game, its asset cache and every add-on), split by kind
+		/** @type {number | null} */
 		let usage = null;
+		/** @type {Record<string, number> | null} */
 		let details = null;
+		/** @type {string[]} */
 		let databases = [];
 		try {
 			const est = navigator.storage?.estimate ? await navigator.storage.estimate() : null;
 			usage = est?.usage ?? null;
-			details = est?.usageDetails || null;
+			details = /** @type {any} */ (est)?.usageDetails || null;
 		} catch {
 			// not available in this game or browser: the fallback is used
 		}
@@ -1061,11 +1223,12 @@
 
 	// Empties one kind of data ("rooms" | "chats" | "profiles"), or everything for this account ("all").
 	// Settings survive "all"; queued outbox messages and saved outfits/groups don't.
+	/** @param {string} kind all, rooms, chats or profiles */
 	async function clearData(kind) {
 		await ensureDb();
 		flushLines();
 		const names = kind === "all" ? ["sessions", "roomMsgs", "dms", "convs", "profiles", "meta"] : DATA_KINDS[kind];
-		const t = db.transaction(names, "readwrite");
+		const t = openDb().transaction(names, "readwrite");
 		for (const n of names) t.objectStore(n).clear();
 		if (kind === "all") {
 			t.objectStore("meta").put({ key: "prefs", ...prefs });
@@ -1084,6 +1247,7 @@
 
 	// Export files leave out what other people made of themselves (description, outfit, crafts) and outfits saved
 	// from them, unless Settings -> Full exports is on. Your own data always goes in whole.
+	/** @param {LBBProfile} r */
 	function trimProfileForExport(r) {
 		if (prefs.exportFull || !r || r.member === me() || !r.data) return r;
 		const data = { ...r.data };
@@ -1092,11 +1256,12 @@
 		delete data.Crafting;
 		return { ...r, data, trimmed: true };
 	}
-	const exportableMeta = (m) => prefs.exportFull || !String(m?.key || "").startsWith("outfit:") || m.from == null || m.from === me();
+	const exportableMeta = (/** @type {LBBMeta} */ m) => prefs.exportFull || !String(m?.key || "").startsWith("outfit:") || m.from == null || m.from === me();
 
 	// Every store for this account in one JSON file
 	async function exportEverything() {
 		await ensureDb();
+		/** @type {{ format: string, version: number, owner: number, exported: number, full: boolean, stores: Record<string, any[]> }} */
 		const out = { format: "BlackBookBackup", version: 1, owner: me(), exported: Date.now(), full: !!prefs.exportFull, stores: {} };
 		for (const n of ["profiles", "sessions", "roomMsgs", "dms", "convs", "meta"]) out.stores[n] = await reqDone(storeOf(n).getAll());
 		out.stores.profiles = out.stores.profiles.map(trimProfileForExport);
@@ -1118,7 +1283,9 @@
 	const TOMBSTONE_DAYS = 120;
 	let syncDirty = false;
 	let syncBusy = false;
-	let syncTimer = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let syncTimer;
+	/** @type {{ at: number, items: number, size: number, note: string, applied?: number, uploaded?: boolean }} */
 	let syncStatus = { at: 0, items: 0, size: 0, note: "" };
 
 	function markSyncDirty() {
@@ -1129,6 +1296,7 @@
 	}
 
 	// Short stable fingerprint of a value, to notice what changed since the last sync
+	/** @param {unknown} v */
 	function syncHash(v) {
 		const str = JSON.stringify(v ?? null);
 		let hash = 5381;
@@ -1141,14 +1309,15 @@
 		await ensureDb();
 		const owner = me();
 		const [profiles, convs, metaAll] = await Promise.all([dbAllForOwner(owner), reqDone(storeOf("convs").index("owner").getAll(owner)), reqDone(storeOf("meta").getAll())]);
+		/** @type {Record<string, any>} */
 		const items = {};
 		const p = { ...prefs };
 		for (const k of SYNC_LOCAL_PREFS) delete p[k];
 		delete p.key;
 		items.prefs = p;
-		const groups = metaAll.find((m) => m.key === "groups");
+		const groups = /** @type {LBBMeta[]} */ (metaAll).find((m) => m.key === "groups");
 		if (groups && (groups.groups?.length || Object.keys(groups.members || {}).length)) items.groups = { groups: groups.groups || [], members: groups.members || {} };
-		const favRoomsRec = metaAll.find((m) => m.key === "favRooms");
+		const favRoomsRec = /** @type {LBBMeta[]} */ (metaAll).find((m) => m.key === "favRooms");
 		if (favRoomsRec?.names?.length) items.favRooms = [...favRoomsRec.names].sort();
 		for (const r of profiles) {
 			if (r.note) items[`note:${r.member}`] = r.note;
@@ -1168,6 +1337,10 @@
 	}
 
 	// Puts one item from another computer into this one's database
+	/**
+	 * @param {string} key
+	 * @param {any} val
+	 */
 	async function syncApply(key, val) {
 		const owner = me();
 		const colon = key.indexOf(":");
@@ -1212,7 +1385,7 @@
 		try {
 			const raw = Player.ExtensionSettings?.[SYNC_KEY] || Player.ExtensionSettings?.[OLD_SYNC_KEY];
 			if (typeof raw !== "string" || !raw) return null;
-			const doc = JSON.parse(LZString.decompressFromUTF16(raw));
+			const doc = /** @type {any} */ (JSON.parse(LZString.decompressFromUTF16(raw) || "null"));
 			return doc && doc.owner === me() && doc.items && typeof doc.items === "object" ? doc : null;
 		} catch (e) {
 			console.warn(TAG, "couldn't read the synced data", e);
@@ -1230,8 +1403,10 @@
 			const now = Date.now();
 			const local = await syncCollect();
 			const firstRun = !(await reqDone(storeOf("meta").get("syncState")));
+			/** @type {{ key: string, h: Record<string, string>, at: Record<string, number> }} */
 			const state = (await reqDone(storeOf("meta").get("syncState"))) || { key: "syncState", h: {}, at: {} };
 			const remote = syncReadRemote();
+			/** @type {Record<string, { at: number, v: any }>} */
 			const ritems = remote?.items || {};
 			// 1. What changed here since the last sync gets stamped now. On a computer's first sync, things the account
 			//    already has are taken from the account rather than overwriting it with this computer's (empty) defaults.
@@ -1242,6 +1417,7 @@
 				state.at[k] = firstRun && ritems[k] ? 0 : now;
 			}
 			// 2. Merge, newest change wins; apply what the account has newer
+			/** @type {Record<string, { at: number, v: any }>} */
 			const merged = {};
 			let applied = 0;
 			for (const k of new Set([...Object.keys(state.h), ...Object.keys(ritems)])) {
@@ -1266,6 +1442,7 @@
 				}
 			}
 			// 3. Upload if anything differs from what the account has
+			/** @type {{ v: number, owner: number, at: number, items: Record<string, { at: number, v: any }>, outfitsLeftOut?: boolean }} */
 			let doc = { v: 1, owner, at: now, items: merged };
 			let packed = LZString.compressToUTF16(JSON.stringify(doc));
 			let note = "";
@@ -1304,15 +1481,21 @@
 		const name = `LCDB_${owner}`;
 		const dbs = indexedDB.databases ? await indexedDB.databases() : [];
 		if (!dbs.some((d) => d.name === name)) return { error: "No LianChat history found for this account." };
+		/** @type {IDBDatabase} */
 		const lc = await new Promise((resolve, reject) => {
 			const r = indexedDB.open(name);
 			r.onsuccess = () => resolve(r.result);
 			r.onerror = () => reject(r.error instanceof Error ? r.error : new Error("IndexedDB request failed"));
 		});
 		try {
+			/**
+			 * @param {string} s
+			 * @returns {Promise<any[]>}
+			 */
 			const read = (s) => (lc.objectStoreNames.contains(s) ? reqDone(lc.transaction(s).objectStore(s).getAll()) : Promise.resolve([]));
 			const [msgs, players] = await Promise.all([read("messages"), read("playerCache")]);
 			const names = new Map(players.map((p) => [p.memberNumber, p.Nickname || p.Name]));
+			/** @type {LBBDm[]} */
 			const recs = [];
 			for (const m of msgs) {
 				// LianChat: memberNumber is the other person in the conversation, sender is who wrote it
@@ -1335,12 +1518,13 @@
 				});
 			}
 			if (recs.length) {
-				const t = db.transaction(["dms", "convs"], "readwrite");
+				const t = openDb().transaction(["dms", "convs"], "readwrite");
 				const dms = t.objectStore("dms");
 				const convs = t.objectStore("convs");
 				for (const r of recs) dms.add(r);
+				/** @type {Map<number, LBBDm>} */
 				const latest = new Map();
-				for (const r of recs) if (!latest.has(r.member) || latest.get(r.member).ts < r.ts) latest.set(r.member, r);
+				for (const r of recs) if ((latest.get(r.member)?.ts ?? -1) < r.ts) latest.set(r.member, r);
 				for (const r of latest.values()) {
 					const key = `${owner}:${r.member}`;
 					const g = convs.get(key);
@@ -1366,6 +1550,10 @@
 	// ---------- server traffic ----------
 
 	// onAny listeners run before the game's own handlers and never change what the game receives
+	/**
+	 * @param {string} event
+	 * @param {any} data
+	 */
 	const onServerEvent = (event, data) => {
 		try {
 			if (!data || typeof data !== "object") return;
@@ -1405,6 +1593,10 @@
 			console.warn(TAG, "capture error", event, e);
 		}
 	};
+	/**
+	 * @param {string} event
+	 * @param {any} data
+	 */
 	const onClientEvent = (event, data) => {
 		try {
 			if (event === "ChatRoomLeave") return closeSession();
@@ -1443,6 +1635,11 @@
 
 	// Uses the game's own request/response search helper, which doesn't touch the search screen.
 	// Private rooms never appear in search results.
+	/**
+	 * @param {string} query
+	 * @param {ServerChatRoomSpace} [space]
+	 * @returns {Promise<{ error: string, rooms?: undefined } | { error?: undefined, rooms: ServerChatRoomSearchData[] }>}
+	 */
 	async function searchRooms(query, space) {
 		if (typeof ServerRoomSearch !== "function") return { error: "Room search isn't available in this game version." };
 		const res = await ServerRoomSearch(query, { Language: "", Space: space || "", Game: "", FullRooms: true, SearchDescs: false });
@@ -1450,6 +1647,7 @@
 		return { rooms: Array.isArray(res.value) ? res.value : [] };
 	}
 
+	/** @type {Record<string, string>} */
 	const JOIN_ERRORS = {
 		RoomFull: "The room is full.",
 		RoomLocked: "The room is locked.",
@@ -1461,6 +1659,10 @@
 
 	// Same path the game's leash feature uses: the space/blocked-item checks, the room search screen, then ServerRoomJoin.
 	// The game's own ChatRoomSync handler moves you into the room once the server accepts.
+	/**
+	 * @param {string} name
+	 * @param {any} [room] what the search said about it
+	 */
 	async function joinRoom(name, room) {
 		if (inRoom()) return { error: "Leave your current room first." };
 		if (typeof ServerRoomJoin !== "function") return { error: "Joining isn't available in this game version." };
@@ -1472,9 +1674,11 @@
 		}
 		if (CurrentScreen !== "ChatSearch") {
 			if (typeof ChatRoomStart !== "function") return { error: "Couldn't open the room search screen." };
-			ChatRoomStart(room?.Space ?? "X", "", null, null, "Introduction", typeof BackgroundsTagList !== "undefined" ? BackgroundsTagList : undefined);
-			for (let i = 0; i < 50 && CurrentScreen !== "ChatSearch"; i++) await sleep(100);
-			if (CurrentScreen !== "ChatSearch") return { error: "Couldn't open the room search screen." };
+			ChatRoomStart(room?.Space ?? "X", "", null, null, "Introduction", typeof BackgroundsTagList !== "undefined" ? /** @type {any} */ (BackgroundsTagList) : undefined);
+			// (the game changes the screen while we wait)
+			const screen = () => /** @type {string} */ (CurrentScreen);
+			for (let i = 0; i < 50 && screen() !== "ChatSearch"; i++) await sleep(100);
+			if (screen() !== "ChatSearch") return { error: "Couldn't open the room search screen." };
 		}
 		const res = await ServerRoomJoin(name);
 		if (res.error) {
@@ -1484,9 +1688,13 @@
 		return { ok: true };
 	}
 
+	/**
+	 * @param {string} name
+	 * @param {ServerChatRoomSpace} [space]
+	 */
 	async function lookupRoom(name, space) {
 		const res = await searchRooms(name, space);
-		if (res.error) return res;
+		if (res.error !== undefined) return res;
 		const room = res.rooms.find((r) => r.Name === name) || res.rooms.find((r) => r.Name.toUpperCase() === name.toUpperCase());
 		return room ? { room, at: Date.now() } : { error: "Room not found in search (it may be private, hidden or just closed)." };
 	}
@@ -1508,6 +1716,7 @@
 		"ScriptPermissions",
 		"WheelFortune",
 	]);
+	/** @type {Record<string, string>} */
 	const SHARED_ADDONS = {
 		MBS: "MBS",
 		MBSVersion: "MBS",
@@ -1529,6 +1738,7 @@
 		PCM: "PCM",
 		LikoTOOL: "Liko Tool",
 	};
+	/** @type {Record<string, string>} */
 	const MESSAGE_ADDONS = {
 		BCXMsg: "BCX",
 		BCEMsg: "WCE",
@@ -1549,16 +1759,18 @@
 		SlimeBeep: "SlimeBeep",
 	};
 	// Message names that carry more after a fixed start (a version, a sub-type)
+	/** @type {[RegExp, string][]} */
 	const MESSAGE_PREFIXES = [
 		[/^KIKILINK\b/, "KikiLink"],
 		[/^HSC_/, "HSC"],
 		[/^BCNekoEnhancer\./, "BCNeko"],
 		[/^PCM_/, "PCM"],
 	];
-	const messageAddon = (key) => MESSAGE_ADDONS[key] || MESSAGE_PREFIXES.find(([re]) => re.test(key))?.[1] || null;
+	const messageAddon = (/** @type {string} */ key) => MESSAGE_ADDONS[key] || MESSAGE_PREFIXES.find(([re]) => re.test(key))?.[1] || null;
 
 	// From FUSAM's add-on manifest (sidiousious.gitlab.io/bc-addon-loader/manifest.json), checked 2026-11-06:
 	// [id, name, website, repository, description, other names]
+	/** @type {[string, string, string, string, string, string[]][]} */
 	const ADDON_DIRECTORY = [
 		["WCE", "Wholesome Club Extensions (WCE)", "https://wce-docs.vercel.app", "https://github.com/KittenApps/WCE", "Smarter, extensible facial animation and posing engine, instant messaging, appearance layering and a collection of quality of life improvements - A fork of F…", []],
 		["BCX", "Bondage Club Extended (BCX)", "https://jomshir98.github.io/bondage-club-extended/", "https://github.com/Jomshir98/bondage-club-extended", "Adds rules, curses, and more to enhance D/s play alongside a handful of quality of life improvements", []],
@@ -1611,9 +1823,11 @@
 		["ECHS", "Erotic Chat Hypnosis Suite (ECHS)", "https://github.com/Dwfreegethub/HypnosisAddon/wiki", "https://github.com/Dwfreegethub/HypnosisAddon", "Interactive hypnosis between players—featuring inductions, spoken suggestions, custom triggers, crafted drinks, and more. Designed to be the most comprehensi…", []],
 	];
 	// Names detection (or bcModSdk) uses that differ from the directory's
+	/** @type {Record<string, string>} */
 	const ADDON_ALIASES = { BCTweaks: "BCT", BCP: "BCPlus", "Secret Prison": "BCSecPris", "Liko AEE": "AEE" };
 
 	// { id, title, url, repo, desc } for an add-on name, or null when the directory doesn't list it
+	/** @param {unknown} name */
 	function addonInfo(name) {
 		if (typeof name !== "string") return null;
 		const low = (ADDON_ALIASES[name] || name).toLowerCase();
@@ -1627,6 +1841,7 @@
 	}
 
 	// Where to read about an add-on: its page, or a GitHub search for ones the directory doesn't know
+	/** @param {string} name */
 	function addonLink(name) {
 		const info = addonInfo(name);
 		if (info?.url) return info.url;
@@ -1634,6 +1849,10 @@
 		return `https://github.com/search?type=repositories&q=${encodeURIComponent(`${term} bondage club`)}`;
 	}
 
+	/**
+	 * @param {unknown} v
+	 * @returns {any}
+	 */
 	const parseMaybe = (v) => {
 		if (typeof v !== "string") return v;
 		try {
@@ -1644,6 +1863,11 @@
 	};
 
 	// First "version"-like field anywhere in a message payload
+	/**
+	 * @param {any} o
+	 * @param {number} [depth]
+	 * @returns {string | null}
+	 */
 	function findVersion(o, depth = 0) {
 		if (!o || typeof o !== "object" || depth > 6) return null;
 		for (const [k, v] of Object.entries(o)) if (/^(version|bctVersion)$/i.test(k) && (typeof v === "string" || typeof v === "number")) return String(v);
@@ -1655,8 +1879,19 @@
 	}
 
 	// [{ name, version, via, seen }] for a cached profile record, sorted by name
+	/**
+	 * @param {LBBProfile | undefined} rec
+	 * @returns {{ name: string, version: string | null, via: string[], seen: number | null }[]}
+	 */
 	function detectAddons(rec) {
+		/** @type {Map<string, { name: string, version: string | null, via: string[], seen: number | null }>} */
 		const found = new Map();
+		/**
+		 * @param {string} name
+		 * @param {string | null} version
+		 * @param {string} via
+		 * @param {number | undefined} seen
+		 */
 		const note = (name, version, via, seen) => {
 			const prev = found.get(name);
 			if (!prev) return found.set(name, { name, version: version || null, via: [via], seen: seen || null });
@@ -1669,25 +1904,27 @@
 			if (GAME_SHARED_KEYS.has(k)) continue;
 			const name = SHARED_ADDONS[k] || `Unknown (${k})`;
 			const version = k === "MBSVersion" ? String(v) : findVersion(parseMaybe(v));
-			note(name, version, "room data", rec.lastSeen);
+			note(name, version, "room data", rec?.lastSeen);
 		}
 		for (const [content, m] of Object.entries(rec?.modMessages || {})) {
+			/** @type {any} */
 			const dict = m.msg?.Dictionary;
 			// Echo's extensions list themselves (with versions) in one message
-			if (content === "ECHO_INFO2" && Array.isArray(dict) && dict[0]?.Content && typeof dict[0].Content === "object") {
-				for (const [ext, info] of Object.entries(dict[0].Content)) note(ext, info?.version ? String(info.version) : null, "messages", m.at);
+			if (content === "ECHO_INFO2" && Array.isArray(dict) && /** @type {any} */ (dict[0])?.Content && typeof /** @type {any} */ (dict[0]).Content === "object") {
+				for (const [ext, info] of Object.entries(/** @type {Record<string, any>} */ (/** @type {any} */ (dict[0]).Content))) note(ext, info?.version ? String(info.version) : null, "messages", m.at);
 				continue;
 			}
 			const key = content.replace(/:.*$/, "");
 			const name = key === "LikoAEE" ? "Liko AEE" : messageAddon(key) || `Unknown (${key.slice(0, 40)})`;
-			const payload = Array.isArray(dict) ? dict.map((x) => (x && typeof x === "object" ? { ...x, message: parseMaybe(x.message) } : x)) : parseMaybe(dict);
+			const payload = Array.isArray(dict) ? dict.map((/** @type {any} */ x) => (x && typeof x === "object" ? { ...x, message: parseMaybe(x.message) } : x)) : parseMaybe(dict);
 			note(name, findVersion(payload), "messages", m.at);
 		}
-		return [...found.values()].sort((a, b) => a.name.startsWith("Unknown") - b.name.startsWith("Unknown") || a.name.localeCompare(b.name));
+		return [...found.values()].sort((a, b) => Number(a.name.startsWith("Unknown")) - Number(b.name.startsWith("Unknown")) || a.name.localeCompare(b.name));
 	}
 
 	// ---------- decoding helpers ----------
 
+	/** @param {unknown} d */
 	function decodeDescription(d) {
 		if (typeof d !== "string") return "";
 		const magic = typeof ONLINE_PROFILE_DESCRIPTION_COMPRESSION_MAGIC === "string" ? ONLINE_PROFILE_DESCRIPTION_COMPRESSION_MAGIC : "╬";
@@ -1699,6 +1936,7 @@
 		}
 	}
 
+	/** @param {unknown} c */
 	function decodeCrafting(c) {
 		if (Array.isArray(c)) return c.filter(Boolean);
 		if (typeof c !== "string" || !c) return [];
@@ -1711,6 +1949,11 @@
 		}
 	}
 
+	/**
+	 * @param {IAssetFamily | undefined} family
+	 * @param {AssetGroupName} group
+	 * @param {string} name
+	 */
 	function assetLabel(family, group, name) {
 		try {
 			const a = AssetGet(family || "Female3DCG", group, name);
@@ -1722,6 +1965,10 @@
 	}
 
 	// Body parts and pronouns can't be removed; listing them only buries the actual items
+	/**
+	 * @param {IAssetFamily | undefined} family
+	 * @param {AssetGroupName} group
+	 */
 	function isBodyGroup(family, group) {
 		try {
 			const g = AssetGroupGet(family || "Female3DCG", group);
@@ -1731,16 +1978,22 @@
 		}
 	}
 
+	/** @param {number} member */
 	function inRoomWith(member) {
 		return typeof ChatRoomCharacter !== "undefined" && ChatRoomCharacter.some((c) => c.MemberNumber === member);
 	}
 
 	// Presence for the lists: the online-friends answer, or being in your room right now (which also covers
 	// people who aren't mutual friends, whom the server never reports as online)
+	/** @param {number} member */
 	function onlineOf(member) {
 		return onlineFriends.get(member) || (inRoomWith(member) ? { here: true } : null);
 	}
 
+	/**
+	 * @param {IAssetFamily | undefined} family
+	 * @param {AssetGroupName} group
+	 */
 	function groupLabel(family, group) {
 		try {
 			const g = AssetGroupGet(family || "Female3DCG", group);
@@ -1751,6 +2004,10 @@
 		return group;
 	}
 
+	/**
+	 * @param {IAssetFamily | undefined} family
+	 * @param {AssetGroupName} group
+	 */
 	function isItemGroup(family, group) {
 		try {
 			const g = AssetGroupGet(family || "Female3DCG", group);
@@ -1761,6 +2018,7 @@
 	}
 
 	// Crafts only store the asset name, so find the restraint it refers to
+	/** @param {string} name */
 	function craftItemLabel(name) {
 		try {
 			const a = Asset.find((x) => x.Name === name && x.Group && x.Group.Category === "Item");
@@ -1771,6 +2029,10 @@
 		return name || "?";
 	}
 
+	/**
+	 * @param {IAssetFamily | undefined} family
+	 * @param {string} lock
+	 */
 	function lockLabel(family, lock) {
 		if (!lock) return "";
 		return assetLabel(family, "ItemMisc", lock);
@@ -1794,12 +2056,21 @@
 		})
 		.catch((err) => console.warn(TAG, "crafting text load failed", err));
 
-	const craftPropName = (key) => craftText.get(`Property${key}`) || key;
-	const craftPropDesc = (key) => craftText.get(`Description${key}`) || "";
-	const activeEffects = (effects) => Object.entries(effects || {}).filter(([, v]) => !!v);
+	const craftPropName = (/** @type {string} */ key) => craftText.get(`Property${key}`) || key;
+	const craftPropDesc = (/** @type {string} */ key) => craftText.get(`Description${key}`) || "";
+	const activeEffects = (/** @type {Record<string, unknown> | null | undefined} */ effects) => Object.entries(effects || {}).filter(([, v]) => !!v);
 
 	// ---------- UI ----------
 
+	/**
+	 * An element with attributes (class, on<event> listeners, the rest as attributes; null/false left out) and children
+	 * (nodes, text, arrays of them; null/false left out)
+	 * @template {keyof HTMLElementTagNameMap} K
+	 * @param {K} tag
+	 * @param {Record<string, any>} [attrs]
+	 * @param {...any} children
+	 * @returns {HTMLElementTagNameMap[K]}
+	 */
 	const h = (tag, attrs = {}, ...children) => {
 		const el = document.createElement(tag);
 		for (const [k, v] of Object.entries(attrs)) {
@@ -1821,21 +2092,28 @@
 		if (s < 86400) return `${Math.round(s / 3600)}h ago`;
 		return `${Math.round(s / 86400)}d ago`;
 	};
-	const fmtDate = (t) => (t ? new Date(t).toLocaleString() : "—");
-	const fmtTime = (t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-	const fmtDuration = (ms) => {
+	const fmtDate = (/** @type {number | null | undefined} */ t) => (t ? new Date(t).toLocaleString() : "—");
+	const fmtTime = (/** @type {number} */ t) => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+	const fmtDuration = (/** @type {number} */ ms) => {
 		const m = Math.max(0, Math.round(ms / 60000));
 		return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`;
 	};
 
+	/**
+	 * @param {string} filename
+	 * @param {string} content
+	 * @param {string} type
+	 */
 	function download(filename, content, type) {
 		const a = h("a", { href: URL.createObjectURL(new Blob([content], { type })), download: filename });
 		a.click();
 		setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 	}
 
-	const safeName = (s) => String(s || "room").replace(/[^\w\- ]+/g, "_").trim().slice(0, 60) || "room";
-	const escapeHtml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+	const safeName = (/** @type {string | null | undefined} */ s) => String(s || "room").replace(/[^\w\- ]+/g, "_").trim().slice(0, 60) || "room";
+	/** @type {Record<string, string>} */
+	const HTML_ESC = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" };
+	const escapeHtml = (/** @type {unknown} */ s) => String(s).replace(/[&<>"]/g, (c) => HTML_ESC[c]);
 
 	const CSS = `
 #fm-panel{position:fixed;inset:4vh 4vw;z-index:10001;display:flex;flex-direction:column;background:rgb(var(--bcd-bg,27 22 34) / var(--bcd-opacity, 1));color:var(--bcd-text,#eee);
@@ -1964,6 +2242,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		["outfits", "Outfits"],
 		["settings", "⚙"],
 	];
+	/** @type {[string, string[]][]} */
 	const FILTER_TYPES = [
 		["Chat", ["Chat"]],
 		["Emote", ["Emote"]],
@@ -1975,41 +2254,66 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 	];
 
 	const ui = (() => {
+		/** @type {BCDockHandle | null} */
 		let dockPanel = null; // our row in the shared dock (bc-dock.js): opens/closes the panel, shows unread
+		/** @type {HTMLElement | null} */
 		let panel = null;
 		let section = "chats";
+		/** @type {Record<string, string>} */
 		const searches = {};
-		let refreshTimer = null;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		let refreshTimer;
 		let unreadTotal = 0;
+		/** @type {number | null} */
 		let shownFor = null; // account whose data the panel last showed
 
 		// profiles
+		/** @type {number | null} */
 		let selected = null;
 		let detailTab = "Overview";
 		let filter = "friends";
-		/** @type {Map<number, any>} */
+		/** @type {Map<number, LBBProfile>} */
 		let records = new Map();
 
 		// chats / friends / rooms / lobby
+		/** @type {Map<number, LBBConv>} */
 		let convs = new Map();
+		/** @type {LBBSession[]} */
 		let sessions = [];
+		/** @type {number | null} */
 		let chatMember = null;
+		/** @type {{ member: number, listEl: HTMLElement, [more: string]: any } | null} */
 		let convView = null; // { member, listEl }
+		/** @type {string | null} */
 		let roomName = null; // Rooms section: the room whose log (all visits combined) is open
+		/** @type {LBBRoomView | null} */
 		let roomView = null; // { name, linesEl, items, sessionIds, visits, find }
+		/** @type {string | null} */
 		let messageSearch = null; // query string when the Rooms main pane shows message search results
+		/** @type {Set<string>} */
 		const hiddenTypes = new Set();
+		/** @type {ServerChatRoomSpace} */
 		let lobbySpace = "X";
+		/** @type {ServerChatRoomSearchData[] | null} */
 		let lobbyRooms = null;
 		let lobbyError = "";
+		/** @type {string | null} */
 		let lobbySel = null;
 		let lobbyFavOnly = false;
+		/** @type {Set<string>} */
 		let favRooms = new Set(); // favorite room names, saved per account in the meta store
+
+		// A part of the open window (they're all there while it's open)
+		const part = (/** @type {string} */ sel) => /** @type {HTMLElement} */ (panel?.querySelector(sel));
 
 		function mount() {
 			document.head.append(h("style", { id: "fm-style" }, CSS));
 			if (window.BCDock)
-				dockPanel = BCDock.add({ id: "friend-manager", title: "Black Book", icon: "📓", order: 10, version: MOD_INFO.version, visible: false, onClick: () => (panel ? close() : open()) });
+				dockPanel = BCDock.add({ id: "friend-manager", title: "Black Book", icon: "📓", order: 10, version: MOD_INFO.version, visible: false, onClick: () => {
+					if (panel) close();
+					else open().catch((err) => console.warn(TAG, err));
+				},
+				});
 			else console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it); open it with /book");
 			renderTab();
 			refreshBadge().catch((err) => console.warn(TAG, err));
@@ -2038,7 +2342,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (!me()) return;
 			await ensureDb();
 			const all = await reqDone(storeOf("convs").index("owner").getAll(me()));
-			unreadTotal = all.reduce((n, c) => n + (c.unread || 0), 0);
+			unreadTotal = /** @type {LBBConv[]} */ (all).reduce((n, c) => n + (c.unread || 0), 0);
 			renderTab();
 			updateStatus();
 		}
@@ -2063,6 +2367,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// open(member, "profiles") jumps to that person's profile; open(member, "chats") to your conversation with them
+		/**
+		 * @param {number} [member]
+		 * @param {string} [toSection]
+		 */
 		async function open(member, toSection) {
 			if (!Player.MemberNumber) return;
 			if (toSection) section = toSection;
@@ -2094,7 +2402,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		function build() {
-			const stop = (e) => e.stopPropagation();
+			const stop = (/** @type {Event} */ e) => e.stopPropagation();
 			panel = h("div", { id: "fm-panel", onkeydown: stop, onkeyup: stop, onkeypress: stop, onwheel: stop });
 			panel.addEventListener("keydown", (e) => {
 				if (e.key === "Escape") close();
@@ -2115,6 +2423,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			document.body.append(panel);
 		}
 
+		/** @param {string} s */
 		function switchSection(s) {
 			if (s === section) return;
 			section = s;
@@ -2129,8 +2438,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		function renderNav() {
 			if (!panel) return;
 			// Settings uses the whole width
-			panel.querySelector("#fm-side").style.display = section === "settings" ? "none" : "";
-			panel.querySelector("#fm-nav").replaceChildren(
+			part("#fm-side").style.display = section === "settings" ? "none" : "";
+			part("#fm-nav").replaceChildren(
 				...SECTIONS.map(([id, label]) =>
 					h(
 						"button",
@@ -2142,6 +2451,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			);
 		}
 
+		/**
+		 * @param {string} placeholder
+		 * @param {(v: string) => void} [onEnter]
+		 */
 		function searchBox(placeholder, onEnter) {
 			const el = h("input", { type: "search", placeholder, value: searches[section] || "" });
 			el.addEventListener("input", () => {
@@ -2155,12 +2468,12 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		// Toolbar above the list; rebuilt only when switching sections so typing isn't interrupted
 		function renderTools() {
 			if (!panel) return;
-			const el = panel.querySelector("#fm-tools");
+			const el = part("#fm-tools");
 			switch (section) {
 				case "profiles": {
 					const filterEl = h(
 						"select",
-						{ onchange: (e) => ((filter = e.target.value), renderList()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((filter = e.target.value), renderList()) },
 						h("option", { value: "friends", selected: filter === "friends" }, "Friends"),
 						h("option", { value: "online", selected: filter === "online" }, "Online friends"),
 						h("option", { value: "all", selected: filter === "all" }, "Everyone cached"),
@@ -2170,8 +2483,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						type: "file",
 						accept: ".json,application/json",
 						style: "display:none",
-						onchange: async (e) => {
-							await importFile(e.target.files[0]);
+						onchange: async (/** @type {Event & { target: HTMLInputElement }} */ e) => {
+							const f = e.target.files?.[0];
+							if (f) await importFile(f);
 							e.target.value = ""; // picking the same file again still imports
 						},
 					});
@@ -2188,7 +2502,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				}
 				case "chats":
 					el.replaceChildren(
-						searchBox("Name, or member # + Enter", (v) => {
+						searchBox("Name, or member # + Enter", (/** @type {string} */ v) => {
 							const n = parseInt(v, 10);
 							if (String(n) === v) openChat(n);
 						}),
@@ -2197,9 +2511,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							{
 								class: showHiddenChats ? "act" : "",
 								title: "Show chats you've hidden",
-								onclick: (e) => {
+								onclick: (/** @type {MouseEvent} */ e) => {
 									showHiddenChats = !showHiddenChats;
-									e.currentTarget.classList.toggle("act", showHiddenChats);
+									/** @type {HTMLElement} */ (e.currentTarget).classList.toggle("act", showHiddenChats);
 									renderList();
 								},
 							},
@@ -2212,7 +2526,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				case "friends": {
 					const filterEl = h(
 						"select",
-						{ onchange: (e) => ((groupFilter = e.target.value), renderList()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((groupFilter = e.target.value), renderList()) },
 						h("option", { value: "all", selected: groupFilter === "all" }, "All groups"),
 						groupsData.groups.map((g) => h("option", { value: g.id, selected: groupFilter === g.id }, g.name)),
 						h("option", { value: "ungrouped", selected: groupFilter === "ungrouped" }, "Ungrouped")
@@ -2233,9 +2547,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							{
 								class: outfitFavOnly ? "act" : "",
 								title: "Show only favorite outfits",
-								onclick: (e) => {
+								onclick: (/** @type {MouseEvent} */ e) => {
 									outfitFavOnly = !outfitFavOnly;
-									e.currentTarget.classList.toggle("act", outfitFavOnly);
+									/** @type {HTMLElement} */ (e.currentTarget).classList.toggle("act", outfitFavOnly);
 									renderList();
 								},
 							},
@@ -2246,14 +2560,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					break;
 				case "rooms":
 					el.replaceChildren(
-						searchBox("Room name · Enter searches messages", (v) => v && showMessageSearch(v)),
+						searchBox("Room name · Enter searches messages", (/** @type {string} */ v) => v && showMessageSearch(v)),
 						h("button", { onclick: () => searches.rooms && showMessageSearch(searches.rooms) }, "Search messages")
 					);
 					break;
 				case "lobby": {
 					const spaceEl = h(
 						"select",
-						{ onchange: (e) => ((lobbySpace = e.target.value), runLobbySearch()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => ((lobbySpace = /** @type {ServerChatRoomSpace} */ (e.target.value)), runLobbySearch()) },
 						[
 							["X", "Mixed"],
 							["", "Female"],
@@ -2266,15 +2580,17 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						{
 							class: lobbyFavOnly ? "act" : "",
 							title: "Show only favorite rooms",
-							onclick: (e) => {
+							onclick: (/** @type {MouseEvent} */ e) => {
 								lobbyFavOnly = !lobbyFavOnly;
-								e.currentTarget.classList.toggle("act", lobbyFavOnly);
+								/** @type {HTMLElement} */ (e.currentTarget).classList.toggle("act", lobbyFavOnly);
 								renderList();
 							},
 						},
 						"★ Favorites"
 					);
-					el.replaceChildren(searchBox("Filter rooms", () => runLobbySearch()), spaceEl, favBtn, h("button", { onclick: runLobbySearch }, "Refresh"));
+					el.replaceChildren(searchBox("Filter rooms", () => {
+						runLobbySearch().catch((err) => console.warn(TAG, err));
+					}), spaceEl, favBtn, h("button", { onclick: runLobbySearch }, "Refresh"));
 					break;
 				}
 			}
@@ -2292,14 +2608,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				reqDone(storeOf("meta").getAll(IDBKeyRange.bound("outfit:", "outfit:￿"))),
 			]);
 			favRooms = new Set(favs?.names || []);
-			savedOutfits = outfitRecs.sort((a, b) => b.savedAt - a.savedAt);
-			groupsData = { groups: [], members: {}, ...((await reqDone(storeOf("meta").get("groups"))) || {}) };
-			delete groupsData.key;
+			savedOutfits = /** @type {LBBOutfit[]} */ (outfitRecs).sort((a, b) => b.savedAt - a.savedAt);
+			const { key: _gk, ...g } = (await reqDone(storeOf("meta").get("groups"))) || {};
+			groupsData = { groups: [], members: {}, ...g };
 			records = new Map(all.map((r) => [r.member, r]));
-			convs = new Map(convList.map((c) => [c.member, c]));
-			sessions = sessionList.sort((a, b) => b.start - a.start);
+			convs = new Map(/** @type {LBBConv[]} */ (convList).map((c) => [c.member, c]));
+			sessions = /** @type {LBBSession[]} */ (sessionList).sort((a, b) => b.start - a.start);
 			nameGroups = buildNameGroups(withLive(sessions));
-			unreadTotal = convList.reduce((n, c) => n + (c.unread || 0), 0);
+			unreadTotal = /** @type {LBBConv[]} */ (convList).reduce((n, c) => n + (c.unread || 0), 0);
 			renderTab();
 			renderNav();
 			renderList();
@@ -2310,20 +2626,25 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		function refreshSoon() {
 			if (!panel || refreshTimer) return;
 			refreshTimer = setTimeout(() => {
-				refreshTimer = null;
+				refreshTimer = undefined;
 				reload().catch((err) => console.warn(TAG, err));
 			}, 500);
 		}
 
 		// A short message shown in the status line for a while (import results)
+		/** @type {{ text: string, until: number } | null} */
 		let statusNote = null;
+		/**
+		 * @param {string} text
+		 * @param {number} [ms]
+		 */
 		function noteStatus(text, ms = 10_000) {
 			statusNote = { text, until: Date.now() + ms };
 			updateStatus();
 			setTimeout(updateStatus, ms + 50);
 		}
 		function updateStatus() {
-			const el = panel?.querySelector("#fm-status");
+			const el = /** @type {HTMLElement | null} */ (panel?.querySelector("#fm-status"));
 			if (!el) return;
 			if (statusNote && statusNote.until > Date.now()) return void (el.textContent = statusNote.text);
 			statusNote = null;
@@ -2336,19 +2657,21 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return new Set(Array.isArray(Player.FriendList) ? Player.FriendList : []);
 		}
 
+		/** @param {number} member */
 		function displayName(member) {
 			const rec = records.get(member);
 			return rec?.nickname || rec?.name || convs.get(member)?.name || friendNameOf(member) || nameOf(member) || `#${member}`;
 		}
 
-		const matches = (q, ...fields) => !q || fields.some((f) => String(f ?? "").toLowerCase().includes(q.toLowerCase()));
+		const matches = (/** @type {string} */ q, /** @type {(string | number | null | undefined)[]} */ ...fields) => !q || fields.some((f) => String(f ?? "").toLowerCase().includes(q.toLowerCase()));
 
 		// ---------- lists ----------
 
 		function renderList() {
 			if (!panel) return;
-			const listEl = panel.querySelector("#fm-list");
+			const listEl = part("#fm-list");
 			const q = searches[section] || "";
+			/** @type {HTMLElement[]} */
 			let rows = [];
 			let empty = "";
 			switch (section) {
@@ -2358,7 +2681,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							e.member === selected,
 							() => ((selected = e.member), renderList(), renderDetail()),
 							[e.member !== me() ? profileStar(e.member) : null, h("span", { class: `fm-dot${e.online ? " on" : ""}` }), h("span", { class: "grow" }, e.name)],
-							`#${e.member} · ${e.member === me() ? "live" : e.rec?.data ? `seen ${ago(e.rec.lastSeen)}` : "no snapshot"}${relationText(e)}`
+							`#${e.member} · ${e.member === me() ? "live" : e.rec?.data ? `seen ${ago(e.rec.lastSeen || 0)}` : "no snapshot"}${relationText(e)}`
 						)
 					);
 					empty = filter === "favs" ? "No favorite profiles yet. Click ☆ on someone to add them." : "Nothing here yet. Join a room with someone to cache them.";
@@ -2367,7 +2690,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					rows = [...convs.values()]
 						// Hidden chats stay out of the list unless asked for (or the one that's open)
 						.filter((c) => matches(q, displayName(c.member), c.member) && (showHiddenChats || !c.hidden || c.member === chatMember))
-						.sort((a, b) => !!b.pinned - !!a.pinned || (b.lastTs || 0) - (a.lastTs || 0))
+						.sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || (b.lastTs || 0) - (a.lastTs || 0))
 						.map((c) =>
 							row(
 								c.member === chatMember,
@@ -2392,20 +2715,27 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					const all = [...people]
 						.map((member) => ({ member, name: displayName(member), online: onlineOf(member), friend: friendSet.has(member) }))
 						.filter((f) => matches(q, f.name, f.member))
-						.sort((a, b) => !!b.online - !!a.online || a.name.localeCompare(b.name));
-					const friendRow = (f) =>
+						.sort((a, b) => Number(!!b.online) - Number(!!a.online) || a.name.localeCompare(b.name));
+					const friendRow = (/** @type {{ member: number, name: string, online: boolean, [more: string]: any }} */ f) =>
 						row(
 							f.member === chatMember,
 							() => openChat(f.member),
 							[
 								h("span", { class: `fm-dot${f.online ? " on" : ""}` }),
 								h("span", { class: "grow" }, f.name),
-								convs.get(f.member)?.unread ? h("span", { class: "fm-badge" }, String(convs.get(f.member).unread)) : null,
+								convs.get(f.member)?.unread ? h("span", { class: "fm-badge" }, String(convs.get(f.member)?.unread)) : null,
 							],
 							`#${f.member} · ${f.online ? onlineText(f.online) + onlineForText(f.member) : f.friend ? offlineText(f.member) : `not a friend${lastOnlineAt(f.member) ? ` · seen ${ago(lastOnlineAt(f.member))}` : ""}`}`
 						);
-					const inGroup = (f, id) => (groupsData.members[f.member] || []).includes(id);
+					const inGroup = (/** @type {{ member: number }} */ f, /** @type {string} */ id) => (groupsData.members[f.member] || []).includes(id);
 					const ungrouped = all.filter((f) => f.friend && !(groupsData.members[f.member] || []).length);
+					/**
+					 * @param {string} key
+					 * @param {string} label
+					 * @param {string | undefined} color
+					 * @param {{ member: number, name: string, online: boolean, [more: string]: any }[]} list
+					 * @param {string} [groupId]
+					 */
 					const section_ = (key, label, color, list, groupId) => {
 						const closed = collapsedGroups.has(key);
 						const head = h(
@@ -2422,13 +2752,13 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							h("span", { class: "fm-group-dot", style: `background:${color}` }),
 							h(
 								"span",
-								{ class: "grow", ondblclick: groupId ? (e) => (e.stopPropagation(), clearTimeout(groupHeadTimer), renameInline(e.currentTarget, groupId)) : null },
+								{ class: "grow", ondblclick: groupId ? (/** @type {MouseEvent} */ e) => (e.stopPropagation(), clearTimeout(groupHeadTimer), renameInline(/** @type {HTMLElement} */ (e.currentTarget), groupId)) : null },
 								`${label} (${list.filter((f) => f.online).length}/${list.length})`
 							),
 							groupId
 								? h(
 									"span",
-									{ class: "fm-group-msg", title: `Message everyone in ${label}`, onclick: (e) => (e.stopPropagation(), (chatMember = null), (convView = null), (friendsView = { message: groupId }), renderList(), renderDetail()) },
+									{ class: "fm-group-msg", title: `Message everyone in ${label}`, onclick: (/** @type {MouseEvent} */ e) => (e.stopPropagation(), (chatMember = null), (convView = null), (friendsView = { message: groupId }), renderList(), renderDetail()) },
 									"✉"
 								)
 								: null,
@@ -2463,7 +2793,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				case "outfits":
 					rows = savedOutfits
 						.filter((o) => matches(q, o.name, o.fromName, o.from) && (!outfitFavOnly || o.fav))
-						.sort((a, b) => !!b.fav - !!a.fav || b.savedAt - a.savedAt)
+						.sort((a, b) => Number(!!b.fav) - Number(!!a.fav) || b.savedAt - a.savedAt)
 						.map((o) =>
 							row(
 								o.id === outfitSel,
@@ -2480,11 +2810,11 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					if (lobbyError) empty = lobbyError;
 					else if (!lobbyRooms) empty = "Loading rooms…";
 					else {
-						const select = (name) => () => ((lobbySel = name), renderList(), renderDetail());
+						const select = (/** @type {string} */ name) => () => ((lobbySel = name), renderList(), renderDetail());
 						const open_ = lobbyRooms
 							.filter((r) => matches(q, r.Name, r.Description, r.Creator) && (!lobbyFavOnly || favRooms.has(r.Name)))
 							// Favorites first; the search already put rooms with friends ahead of the rest
-							.sort((a, b) => favRooms.has(b.Name) - favRooms.has(a.Name));
+							.sort((a, b) => Number(favRooms.has(b.Name)) - Number(favRooms.has(a.Name)));
 						const openNames = new Set(lobbyRooms.map((r) => r.Name));
 						// Favorites that didn't come back from this search are closed, private, or in another space
 						const closedFavs = [...favRooms].filter((name) => !openNames.has(name) && matches(q, name)).sort();
@@ -2497,7 +2827,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 										favStar(r.Name),
 										h("span", { class: "grow" }, r.Name),
 										Array.isArray(r.Friends) && r.Friends.length ? h("span", { class: "fm-badge", title: "Friends inside", style: "background:#2e7d32" }, String(r.Friends.length)) : null,
-										h("span", { class: "fm-muted", style: "font-size:12px;font-weight:400" }, `${r.MemberCount}/${r.MemberLimit}${r.Locked ? " 🔒" : ""}`),
+										h("span", { class: "fm-muted", style: "font-size:12px;font-weight:400" }, `${r.MemberCount}/${r.MemberLimit}${/** @type {any} */ (r).Locked ? " 🔒" : ""}`),
 									],
 									r.Description || ""
 								)
@@ -2520,6 +2850,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			updateStatus();
 		}
 
+		/** @param {string} name */
 		async function toggleFavRoom(name) {
 			if (favRooms.has(name)) favRooms.delete(name);
 			else favRooms.add(name);
@@ -2527,12 +2858,13 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			await reqDone(storeOf("meta", "readwrite").put({ key: "favRooms", names: [...favRooms].sort() }));
 			renderList();
 			if (section === "lobby") renderDetail();
-			if (section === "rooms" && roomView?.name === name && roomView.starEl) {
+			if (section === "rooms" && roomView && roomView.name === name && roomView.starEl) {
 				roomView.starEl.textContent = favRooms.has(name) ? "★" : "☆";
 				roomView.starEl.classList.toggle("on", favRooms.has(name));
 			}
 		}
 
+		/** @param {string} name */
 		function favStar(name) {
 			const on = favRooms.has(name);
 			return h(
@@ -2540,16 +2872,23 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				{
 					class: `fm-star${on ? " on" : ""}`,
 					title: on ? "Remove from favorite rooms" : "Add to favorite rooms",
-					onclick: (e) => (e.stopPropagation(), toggleFavRoom(name)),
+					onclick: (/** @type {MouseEvent} */ e) => (e.stopPropagation(), toggleFavRoom(name)),
 				},
 				on ? "★" : "☆"
 			);
 		}
 
+		/**
+		 * @param {boolean} isSel
+		 * @param {() => void} onclick
+		 * @param {any} nameParts
+		 * @param {any} sub
+		 */
 		function row(isSel, onclick, nameParts, sub) {
 			return h("div", { class: `fm-row${isSel ? " sel" : ""}`, onclick }, h("div", { class: "n" }, nameParts), h("div", { class: "m" }, sub));
 		}
 
+		/** @param {string} q */
 		function profileEntries(q) {
 			const friends = friendIds();
 			const ids = new Set([...friends, ...records.keys()]);
@@ -2563,16 +2902,21 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (q) list = list.filter((e) => matches(q, e.name, e.member));
 			// Favorites first, then online, then most recently seen
 			return list.sort(
-				(a, b) => !!b.rec?.fav - !!a.rec?.fav || b.online - a.online || (b.rec?.lastSeen || 0) - (a.rec?.lastSeen || 0) || a.name.localeCompare(b.name)
+				(a, b) => Number(!!b.rec?.fav) - Number(!!a.rec?.fav) || Number(b.online) - Number(a.online) || (b.rec?.lastSeen || 0) - (a.rec?.lastSeen || 0) || a.name.localeCompare(b.name)
 			);
 		}
 
+		/** @param {{ member: number, friend: boolean }} e */
 		function relationText(e) {
 			if (e.member === Player.MemberNumber) return " · you";
 			if (inRoomWith(e.member)) return " · in your room";
 			return e.friend ? "" : " · not a friend";
 		}
 
+		/**
+		 * @param {number} member
+		 * @param {any} online
+		 */
 		function presenceText(member, online) {
 			if (member === Player.MemberNumber) return "you";
 			if (inRoomWith(member)) return "in your room now";
@@ -2583,20 +2927,24 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// When someone was last known to be online: the friends query, or being in a room with you
+		/** @param {number} member */
 		function lastOnlineAt(member) {
 			const rec = records.get(member);
 			return Math.max(rec?.lastOnline || 0, rec?.lastSeen || 0);
 		}
+		/** @param {number} member */
 		function offlineText(member) {
 			const t = lastOnlineAt(member);
 			return t ? `offline · last online ${ago(t)}` : "offline";
 		}
 		// " · for 25m" while online, when we saw them come online
+		/** @param {number} member */
 		function onlineForText(member) {
 			const since = records.get(member)?.onlineSince;
 			if (!since || !onlineOf(member)) return "";
 			return Date.now() - since < 60_000 ? " · just came online" : ` · for ${fmtDuration(Date.now() - since)}`;
 		}
+		/** @param {any} f */
 		function onlineText(f) {
 			if (f.here) return "in your room now";
 			if (f.ChatRoomName) return `online in “${f.ChatRoomName}”${f.ChatRoomSpace ? ` (${f.ChatRoomSpace})` : ""}`;
@@ -2609,27 +2957,34 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		// what the reader was doing: which sections are open (by their summary, without its "— 5m ago"), where the pane
 		// and any open block are scrolled, and the note being typed (text and caret), so a refresh doesn't undo it.
 		// Only for a redraw of the same view: picking another person or tab starts fresh at the top
+		/** @type {string | null} */
 		let viewSig = null;
+		/**
+		 * @param {HTMLElement} el
+		 * @param {string} sig
+		 * @param {() => void} rebuild
+		 */
 		function keepViewState(el, sig, rebuild) {
 			const same = sig === viewSig;
 			viewSig = sig;
 			if (!same) return rebuild();
-			const keyOf = (d) => (d.querySelector(":scope > summary")?.textContent || "").split(" — ")[0];
+			const keyOf = (/** @type {Element} */ d) => (d.querySelector(":scope > summary")?.textContent || "").split(" — ")[0];
+			/** @type {Map<string, number[][]>} */
 			const openNow = new Map();
 			for (const d of el.querySelectorAll("details")) if (d.open) openNow.set(keyOf(d), [...d.querySelectorAll("pre")].map((p) => [p.scrollTop, p.scrollLeft]));
 			const top = el.scrollTop;
-			const active = document.activeElement;
+			const active = /** @type {HTMLInputElement | null} */ (document.activeElement);
 			const typing = active && el.contains(active) && active.dataset.key ? { key: active.dataset.key, value: active.value, a: active.selectionStart, b: active.selectionEnd } : null;
 			rebuild();
 			for (const d of el.querySelectorAll("details")) {
 				const was = openNow.get(keyOf(d));
 				if (!was) continue;
 				d.open = true;
-				d.querySelectorAll("pre").forEach((p, i) => was[i] && ((p.scrollTop = was[i][0]), (p.scrollLeft = was[i][1])));
+				d.querySelectorAll("pre").forEach((/** @type {HTMLElement} */ p, /** @type {number} */ i) => was[i] && ((p.scrollTop = was[i][0]), (p.scrollLeft = was[i][1])));
 			}
 			el.scrollTop = top;
 			if (typing) {
-				const t = el.querySelector(`[data-key="${typing.key}"]`);
+				const t = /** @type {HTMLInputElement | null} */ (el.querySelector(`[data-key="${typing.key}"]`));
 				if (t) {
 					t.value = typing.value;
 					t.focus();
@@ -2644,8 +2999,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		function renderDetail() {
 			if (!panel) return;
-			const el = panel.querySelector("#fm-detail");
-			const fill = (on) => el.classList.toggle("fm-fill", on);
+			const el = part("#fm-detail");
+			const fill = (/** @type {boolean} */ on) => el.classList.toggle("fm-fill", on);
 			switch (section) {
 				case "profiles":
 					fill(false);
@@ -2658,7 +3013,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					if (chatMember == null) {
 						fill(false);
 						if (section === "friends" && friendsView === "manage") return renderManageGroups(el);
-						if (section === "friends" && friendsView?.message) return renderGroupMessage(el, friendsView.message);
+						if (section === "friends" && typeof friendsView === "object" && friendsView?.message) return renderGroupMessage(el, friendsView.message);
 						return el.replaceChildren(h("p", { class: "fm-muted" }, "Pick a conversation or friend on the left."));
 					}
 					fill(true);
@@ -2667,7 +3022,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				case "rooms":
 					if (messageSearch) {
 						fill(false);
-						return renderMessageSearch(el, messageSearch);
+						renderMessageSearch(el, messageSearch).catch((err) => console.warn(TAG, err));
+						return;
 					}
 					if (roomName == null) {
 						fill(false);
@@ -2688,9 +3044,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						return el.replaceChildren(
 							h("h2", { style: "margin-top:0" }, favStar(lobbySel), " ", lobbySel),
 							h("p", { class: "fm-muted" }, "Not in this search: it's closed, private, full and hidden, or in another space."),
-							logged ? h("button", { onclick: () => openRoom(lobbySel) }, "Open its chat log") : h("p", { class: "fm-muted" }, "You haven't logged a visit to it yet."),
+							logged ? h("button", { onclick: () => lobbySel && openRoom(lobbySel) }, "Open its chat log") : h("p", { class: "fm-muted" }, "You haven't logged a visit to it yet."),
 							" ",
-							joinButton(lobbySel, null, "Try to join")
+							joinButton(lobbySel, null, "Try to join") || ""
 						);
 					}
 					return el.replaceChildren(h("p", { class: "fm-muted" }, "Pick a room to see its description and who's inside."));
@@ -2700,10 +3056,12 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// ----- conversations -----
 
+		/** @param {number} member */
 		function isViewingConv(member) {
 			return !!panel && !!convView && convView.member === member && convView.listEl.isConnected;
 		}
 
+		/** @param {number} member */
 		function openChat(member) {
 			chatMember = member;
 			friendsView = null;
@@ -2717,6 +3075,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			renderDetail();
 		}
 
+		/** @param {number} member */
 		async function markRead(member) {
 			const key = `${me()}:${member}`;
 			markGameBeepsRead(member);
@@ -2730,7 +3089,13 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			}
 		}
 
+		/**
+		 * @param {LBBDm} m
+		 * @param {LBBDm | null | undefined} prev
+		 * @returns {HTMLElement[]}
+		 */
 		function bubble(m, prev) {
+			/** @type {HTMLElement[]} */
 			const out = [];
 			const day = new Date(m.ts).toDateString();
 			if (!prev || new Date(prev.ts).toDateString() !== day) out.push(h("div", { class: "fm-day" }, day));
@@ -2752,6 +3117,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return out;
 		}
 
+		/**
+		 * @param {HTMLElement} el
+		 * @param {number} member
+		 */
 		async function renderConversation(el, member) {
 			const online = onlineFriends.get(member);
 			const conv = convs.get(member);
@@ -2762,13 +3131,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			const sendBtn = h("button", {});
 			// In the same room you can whisper instead of beeping; whispering is the default there
 			const canWhisper = member !== me() && inRoomWith(member);
+			/** @type {string} */
 			let mode = canWhisper ? composeModes.get(member) || "whisper" : "beep";
 			const modeBtns = canWhisper
 				? ["whisper", "beep"].map((m) => h("button", { class: "fm-mode", "data-mode": m, onclick: () => setMode(m) }, m === "whisper" ? "Whisper" : "Beep"))
 				: [];
 			// Offline people can't receive beeps, so messages to them go to the outbox instead
 			const queueing = () => mode === "beep" && member !== me() && !reachableNow().has(member);
-			const setMode = (m) => {
+			const setMode = (/** @type {string} */ m) => {
 				mode = m;
 				composeModes.set(member, m);
 				for (const b of modeBtns) b.classList.toggle("act", b.dataset.mode === m);
@@ -2846,9 +3216,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// Queued (not yet sent) messages for the open conversation, above the reply box
 		function renderPending() {
-			if (!convView?.pendingEl) return;
-			const queued = outbox.filter((m) => m.member === convView.member);
-			convView.pendingEl.replaceChildren(
+			const cv = convView;
+			if (!cv?.pendingEl) return;
+			const queued = outbox.filter((m) => m.member === cv.member);
+			cv.pendingEl.replaceChildren(
 				...queued.map((m) =>
 					h(
 						"div",
@@ -2858,12 +3229,12 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							"div",
 							{ class: "meta" },
 							`⏳ waiting for them to come online · queued ${ago(m.createdAt)} `,
-							h("a", { href: "#", onclick: (e) => (e.preventDefault(), cancelQueued(m.key)) }, "cancel")
+							h("a", { href: "#", onclick: (/** @type {MouseEvent} */ e) => (e.preventDefault(), cancelQueued(m.key)) }, "cancel")
 						)
 					)
 				)
 			);
-			convView.pendingEl.style.display = queued.length ? "" : "none";
+			cv.pendingEl.style.display = queued.length ? "" : "none";
 		}
 
 		// After a Clear / Delete everything on the Settings page
@@ -2881,16 +3252,18 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (panel && (section === "chats" || section === "friends")) renderList();
 		}
 
+		/** @param {LBBDm} rec */
 		function onDm(rec) {
 			refreshBadge().catch((err) => console.warn(TAG, err));
 			if (isViewingConv(rec.member)) {
 				// Seen as it arrives; the game has logged its copy of the beep by now
 				if (rec.dir === "in") markGameBeepsRead(rec.member);
-				const listEl = convView.listEl;
-				if (!convView.last) listEl.replaceChildren();
+				const cv = /** @type {NonNullable<typeof convView>} */ (convView);
+				const listEl = cv.listEl;
+				if (!cv.last) listEl.replaceChildren();
 				const atBottom = listEl.scrollHeight - listEl.scrollTop - listEl.clientHeight < 40;
-				listEl.append(...bubble(rec, convView.last));
-				convView.last = rec;
+				listEl.append(...bubble(rec, cv.last));
+				cv.last = rec;
 				if (atBottom || rec.dir === "out") listEl.scrollTop = listEl.scrollHeight;
 			}
 			refreshSoon();
@@ -2899,15 +3272,18 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		// ----- friend groups (meta store "groups": { groups: [{ id, name, color }], members: { [member]: [groupId] } }) -----
 
 		const GROUP_COLORS = ["#c9a8ff", "#7fd1b9", "#ffb86b", "#ff8fab", "#8fd3ff", "#e6e47a", "#b4f08a"];
+		/** @type {LBBGroups} */
 		let groupsData = { groups: [], members: {} };
 		let groupFilter = "all"; // "all" | "ungrouped" | group id
 		const collapsedGroups = new Set();
-		let groupHeadTimer = null;
+		/** @type {ReturnType<typeof setTimeout> | undefined} */
+		let groupHeadTimer;
+		/** @type {null | "manage" | { message: string }} */
 		let friendsView = null; // null | "manage" | { message: groupId } (Friends main pane when no chat is open)
 
-		const groupById = (id) => groupsData.groups.find((g) => g.id === id);
-		const groupsOf = (member) => (groupsData.members[member] || []).map(groupById).filter(Boolean);
-		const membersOf = (id) =>
+		const groupById = (/** @type {string} */ id) => groupsData.groups.find((g) => g.id === id);
+		const groupsOf = (/** @type {number} */ member) => (groupsData.members[member] || []).map(groupById).filter(Boolean);
+		const membersOf = (/** @type {string} */ id) =>
 			Object.entries(groupsData.members)
 				.filter(([, ids]) => ids.includes(id))
 				.map(([m]) => Number(m));
@@ -2922,6 +3298,11 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			}
 		}
 
+		/**
+		 * @param {number} member
+		 * @param {string} id
+		 * @param {boolean} inGroup
+		 */
 		async function setMemberGroup(member, id, inGroup) {
 			const ids = new Set(groupsData.members[member] || []);
 			if (inGroup) ids.add(id);
@@ -2931,6 +3312,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			await saveGroups();
 		}
 
+		/** @param {string} name */
 		async function createGroup(name) {
 			const id = String(Date.now());
 			groupsData.groups.push({ id, name: name || `Group ${groupsData.groups.length + 1}`, color: GROUP_COLORS[groupsData.groups.length % GROUP_COLORS.length] });
@@ -2938,6 +3320,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return id;
 		}
 
+		/**
+		 * @param {string} id
+		 * @param {Partial<LBBGroup>} changes
+		 */
 		async function updateGroup(id, changes) {
 			const g = groupById(id);
 			if (!g) return;
@@ -2946,12 +3332,16 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Swaps a group heading's label for a name box (Enter or click away saves, Esc cancels)
+		/**
+		 * @param {HTMLElement} labelEl
+		 * @param {string} id
+		 */
 		function renameInline(labelEl, id) {
 			const g = groupById(id);
 			if (!g) return;
 			const input = h("input", { type: "text", class: "fm-gname", value: g.name });
 			let done = false;
-			const finish = async (save) => {
+			const finish = async (/** @type {boolean} */ save) => {
 				if (done) return;
 				done = true;
 				const name = input.value.trim();
@@ -2966,12 +3356,15 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					finish(false).catch((err) => console.warn(TAG, err));
 				}
 			});
-			input.addEventListener("blur", () => finish(true));
+			input.addEventListener("blur", () => {
+				finish(true).catch((err) => console.warn(TAG, err));
+			});
 			labelEl.replaceWith(input);
 			input.focus();
 			input.select();
 		}
 
+		/** @param {string} id */
 		async function deleteGroup(id) {
 			groupsData.groups = groupsData.groups.filter((g) => g.id !== id);
 			for (const [m, ids] of Object.entries(groupsData.members)) {
@@ -2984,13 +3377,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Coloured tags for a person's groups, with × to remove and a "+ Group" picker
+		/** @param {number} member */
 		function groupTags(member) {
 			const wrap = h("span", { class: "fm-groups" });
 			// "New group…" swaps the picker for a name box: Enter creates the group and adds this person, Esc cancels
 			const askNewGroupName = () => {
 				const input = h("input", { type: "text", class: "fm-gname", placeholder: "New group name, Enter" });
 				let done = false;
-				const finish = async (create) => {
+				const finish = async (/** @type {boolean} */ create) => {
 					if (done) return;
 					done = true;
 					const name = input.value.trim();
@@ -3004,8 +3398,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						finish(false).catch((err) => console.warn(TAG, err));
 					}
 				});
-				input.addEventListener("blur", () => finish(true));
-				wrap.lastChild.replaceWith(input);
+				input.addEventListener("blur", () => {
+					finish(true).catch((err) => console.warn(TAG, err));
+				});
+				wrap.lastChild?.replaceWith(input);
 				input.focus();
 			};
 			const draw = () => {
@@ -3016,7 +3412,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					{
 						class: "fm-gpick",
 						title: "Add to a group",
-						onchange: async (e) => {
+						onchange: async (/** @type {Event & { target: HTMLSelectElement }} */ e) => {
 							const v = e.target.value;
 							if (!v) return;
 							if (v === "__new") return askNewGroupName();
@@ -3044,13 +3440,16 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return wrap;
 		}
 
+		/** @param {HTMLElement} el */
 		function renderManageGroups(el) {
 			const nameEl = h("input", { type: "text", placeholder: "New group name" });
 			const add = async () => {
 				await createGroup(nameEl.value.trim());
 				renderManageGroups(el);
 			};
-			nameEl.addEventListener("keydown", (e) => e.key === "Enter" && add());
+			nameEl.addEventListener("keydown", (e) => {
+				if (e.key === "Enter") add().catch((err) => console.warn(TAG, err));
+			});
 			el.replaceChildren(
 				h("h3", { style: "margin-top:0" }, "Friend groups"),
 				h("p", { class: "fm-muted" }, "Add people to groups from their chat or profile (+ Group). Someone can be in several groups."),
@@ -3062,15 +3461,21 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 						groupsData.groups.map((g) => {
 							const name = h("input", { type: "text", value: g.name });
 							// Saves as you type (and again on Enter/blur), so there's no separate save step
-							let nameTimer = null;
+							/** @type {ReturnType<typeof setTimeout> | undefined} */
+							let nameTimer;
 							const saveName = () => name.value.trim() && name.value.trim() !== g.name && updateGroup(g.id, { name: name.value.trim() });
 							name.addEventListener("input", () => {
 								clearTimeout(nameTimer);
 								nameTimer = setTimeout(saveName, 400);
 							});
-							name.addEventListener("change", saveName);
+							name.addEventListener("change", () => {
+								const p = saveName();
+								if (p) p.catch((err) => console.warn(TAG, err));
+							});
 							const color = h("input", { type: "color", value: g.color, style: "padding:0;width:32px;height:26px" });
-							color.addEventListener("change", () => updateGroup(g.id, { color: color.value }));
+							color.addEventListener("change", () => {
+								updateGroup(g.id, { color: color.value }).catch((err) => console.warn(TAG, err));
+							});
 							return h(
 								"tr",
 								{},
@@ -3100,10 +3505,15 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// When each person last got a group message (while this page is open), for the per-person limit
+		/** @type {Map<number, number>} */
 		const lastGroupMsg = new Map();
-		const fmtSecs = (s) => (s >= 60 ? `${Math.round(s / 6) / 10} min` : `${s} s`).replace(".0 ", " ");
+		const fmtSecs = (/** @type {number} */ s) => (s >= 60 ? `${Math.round(s / 6) / 10} min` : `${s} s`).replace(".0 ", " ");
 
 		// One message to everyone in a group: beeped now if they're online, otherwise held in the outbox
+		/**
+		 * @param {HTMLElement} el
+		 * @param {string} id
+		 */
 		function renderGroupMessage(el, id) {
 			const g = groupById(id);
 			if (!g) return el.replaceChildren(h("p", { class: "fm-muted" }, "That group no longer exists."));
@@ -3155,7 +3565,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					{ class: "fm-chips", style: "margin-bottom:8px" },
 					people.map((m) => h("span", { class: "fm-chip" }, h("span", { class: `fm-dot${reachable.has(m) ? " on" : ""}` }), displayName(m)))
 				),
-				people.length ? null : h("p", { class: "fm-muted" }, "Nobody is in this group yet."),
+				people.length ? "" : h("p", { class: "fm-muted" }, "Nobody is in this group yet."),
 				input,
 				h("div", { style: "display:flex;gap:10px;align-items:center;margin-top:6px" }, h("label", { class: "fm-muted" }, includeRoom, " include my room"), sendBtn),
 				h(
@@ -3167,8 +3577,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			);
 		}
 
+		/** @type {Map<number, string>} */
 		const composeModes = new Map(); // member → "whisper" | "beep", remembered while the page is open
-		const queuedFor = (member) => outbox.filter((m) => m.member === member).length;
+		const queuedFor = (/** @type {number} */ member) => outbox.filter((m) => m.member === member).length;
 		let showHiddenChats = false;
 
 		// ----- settings (per account, saved in the meta store's "prefs") -----
@@ -3181,16 +3592,23 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			[180, "6 months"],
 			[365, "1 year"],
 		];
-		const fmtBytes = (n) => (n == null ? "unknown" : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
+		const fmtBytes = (/** @type {number | null | undefined} */ n) => (n == null ? "unknown" : n < 1024 * 1024 ? `${Math.round(n / 1024)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`);
 
+		/** @param {HTMLElement} el */
 		function renderSettings(el) {
 			const redraw = () => renderSettings(el);
 			// opts: { sub: indent under the setting above, off: greyed with this reason }
+			/**
+			 * @param {string} key
+			 * @param {string} label
+			 * @param {string | null} [hint]
+			 * @param {{ sub?: boolean, off?: string | null }} [opts] off: why it's greyed out
+			 */
 			const toggle = (key, label, hint, opts = {}) => {
 				const cb = h("input", {
 					type: "checkbox",
 					disabled: !!opts.off,
-					onchange: async (e) => {
+					onchange: async (/** @type {Event & { target: HTMLInputElement }} */ e) => {
 						const on = e.target.checked;
 						if (on && key.startsWith("notify") && typeof Notification !== "undefined" && Notification.permission === "default") await Notification.requestPermission();
 						setPref(key, on);
@@ -3207,17 +3625,23 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					hint || opts.off ? h("div", { class: "fm-muted fm-set-hint" }, opts.off || hint) : null
 				);
 			};
-			const retention = (key, label) =>
+			const retention = (/** @type {string} */ key, /** @type {string} */ label) =>
 				h(
 					"label",
 					{ class: "fm-set-row" },
 					`${label} `,
 					h(
 						"select",
-						{ onchange: (e) => (setPref(key, parseInt(e.target.value, 10)), redraw()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => (setPref(key, parseInt(e.target.value, 10)), redraw()) },
 						RETENTION_CHOICES.map(([v, t]) => h("option", { value: v, selected: prefs[key] === v }, t))
 					)
 				);
+			/**
+			 * @param {string} key
+			 * @param {string} label
+			 * @param {[number, string][]} options
+			 * @param {string} [hint]
+			 */
 			const choice = (key, label, options, hint) =>
 				h(
 					"label",
@@ -3225,12 +3649,12 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					`${label} `,
 					h(
 						"select",
-						{ onchange: (e) => (setPref(key, Number(e.target.value)), redraw()) },
+						{ onchange: (/** @type {Event & { target: HTMLSelectElement }} */ e) => (setPref(key, Number(e.target.value)), redraw()) },
 						options.map(([v, t]) => h("option", { value: v, selected: Number(prefs[key]) === v }, t))
 					),
 					hint ? h("div", { class: "fm-muted fm-set-hint" }, hint) : null
 				);
-			const clearBtn = (kind, label) =>
+			const clearBtn = (/** @type {string} */ kind, /** @type {string} */ label) =>
 				confirmButton(label, async () => {
 					await clearData(kind);
 					redraw();
@@ -3239,7 +3663,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			const perm = typeof Notification === "undefined" ? "unsupported" : Notification.permission;
 			const openers = [prefs.showBubble, prefs.cmdBook, prefs.cmdChat].filter(Boolean).length;
 			// Never let the last way of opening the panel be switched off
-			const lastOpener = (key) => (prefs[key] && openers === 1 ? "This is the only way left to open your Little Black Book, so it can't be turned off." : null);
+			const lastOpener = (/** @type {string} */ key) => (prefs[key] && openers === 1 ? "This is the only way left to open your Little Black Book, so it can't be turned off." : null);
 			const statsEl = h("div", { class: "fm-muted" }, "Counting…");
 			const siteEl = h("div", { class: "fm-muted", style: "font-size:12px;margin-top:4px" });
 
@@ -3294,8 +3718,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 							h(
 								"button",
 								{
-									onclick: async (e) => {
-										e.currentTarget.disabled = true;
+									onclick: async (/** @type {MouseEvent} */ e) => {
+										/** @type {HTMLButtonElement} */ (e.currentTarget).disabled = true;
 										try {
 											await syncAccount(true);
 										} catch (err) {
@@ -3340,8 +3764,8 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 								"button",
 								{
 									title: "Shows a desktop notification now, asking your browser for permission first if needed",
-									onclick: async (e) => {
-										const out = e.target.nextElementSibling;
+									onclick: async (/** @type {MouseEvent} */ e) => {
+										const out = /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (e.target).nextElementSibling);
 										if (Notification.permission === "default") await Notification.requestPermission();
 										if (Notification.permission !== "granted") return (out.textContent = "Blocked: allow notifications for this site in the browser (padlock left of the address).");
 										new Notification("Little Black Book", { body: "Desktop notifications work. Check Windows' notification settings / Focus if you didn't see this.", tag: "fm-test" });
@@ -3375,6 +3799,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			storageStats()
 				.then((st) => {
 					statsEl.textContent = `Saved now: ${st.sessions} room visits (${st.roomMsgs} lines) · ${st.convs} chats (${st.dms} messages) · ${st.profiles} profiles`;
+					/** @type {Record<string, string>} */
 					const KIND = { indexedDB: "databases", caches: "cached files", serviceWorkerRegistrations: "service worker", fileSystem: "files" };
 					const parts = st.details
 						? Object.entries(st.details)
@@ -3385,13 +3810,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					siteEl.replaceChildren(
 						`The whole game site uses ${fmtBytes(st.usage)} in this browser${parts.length ? ` (${parts.join(", ")})` : ""}. ` +
 							"That includes the game and every add-on, not just Little Black Book.",
-						st.databases.length ? h("div", {}, `Databases on this site: ${st.databases.join(", ")}`) : null
+						st.databases.length ? h("div", {}, `Databases on this site: ${st.databases.join(", ")}`) : ""
 					);
 				})
 				.catch(() => (statsEl.textContent = ""));
 		}
 
 		// Sends a beep that carries your room, so they can join from the beep
+		/** @param {number} member */
 		function inviteButton(member) {
 			const btn = h(
 				"button",
@@ -3409,6 +3835,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Same steps as the game's Add Friends screen
+		/** @param {number} member */
 		function addFriendButton(member) {
 			const btn = h(
 				"button",
@@ -3427,6 +3854,11 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return btn;
 		}
 
+		/**
+		 * @param {number} member
+		 * @param {"pinned" | "hidden"} flag
+		 * @param {boolean} value
+		 */
 		async function setConvFlag(member, flag, value) {
 			await ensureDb();
 			const key = `${me()}:${member}`;
@@ -3440,11 +3872,12 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			await reload(true);
 		}
 
+		/** @param {number} member */
 		async function exportConversation(member) {
 			await ensureDb();
 			const msgs = await reqDone(storeOf("dms").index("conv").getAll(IDBKeyRange.bound([me(), member, 0], [me(), member, Infinity])));
 			const who = displayName(member);
-			const lines = msgs.map((m) => {
+			const lines = /** @type {LBBDm[]} */ (msgs).map((m) => {
 				const from = m.dir === "out" ? "You" : who;
 				const kind = m.kind === "whisper" ? "whisper" : m.kind === "reaction" ? "reaction" : "beep";
 				const text = m.kind === "ping" ? "(beep)" : m.kind === "reaction" ? m.meta?.reactionEmoji || m.text : m.text;
@@ -3459,9 +3892,17 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// Permanent deletes ask for a second click instead of a browser dialog (dialogs freeze the game)
 		// texts: { armed, busy } override the wording for non-delete actions
+		/**
+		 * A button that asks for a second click before doing it
+		 * @param {string} label
+		 * @param {() => void | Promise<unknown>} onConfirm
+		 * @param {Record<string, any>} [attrs]
+		 * @param {{ armed?: string, busy?: string }} [texts]
+		 */
 		function confirmButton(label, onConfirm, attrs = {}, texts = {}) {
 			let armed = false;
-			let timer = null;
+			/** @type {ReturnType<typeof setTimeout> | undefined} */
+			let timer;
 			const reset = () => {
 				armed = false;
 				btn.disabled = false;
@@ -3472,7 +3913,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				"button",
 				{
 					...attrs,
-					onclick: async (e) => {
+					onclick: async (/** @type {MouseEvent} */ e) => {
 						e.stopPropagation();
 						if (!armed) {
 							armed = true;
@@ -3495,19 +3936,24 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Shown only while you're not in a room; closes the panel once the game moves you in
+		/**
+		 * @param {string} name
+		 * @param {any} room what the search said about it (null: not known)
+		 * @param {string} [label]
+		 */
 		function joinButton(name, room, label = "Join") {
 			if (inRoom()) return null;
 			const btn = h(
 				"button",
 				{
 					class: "fm-join",
-					onclick: async (e) => {
+					onclick: async (/** @type {MouseEvent} */ e) => {
 						e.stopPropagation();
 						btn.disabled = true;
 						btn.textContent = "Joining…";
 						const res = await joinRoom(name, room);
 						if (res.ok) return close();
-						btn.textContent = res.error;
+						btn.textContent = res.error || "";
 						setTimeout(() => {
 							btn.disabled = false;
 							btn.textContent = label;
@@ -3519,10 +3965,11 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return btn;
 		}
 
+		/** @param {number} member */
 		async function deleteConversation(member) {
 			await ensureDb();
 			const keys = await reqDone(storeOf("dms").index("conv").getAllKeys(IDBKeyRange.bound([me(), member, 0], [me(), member, Infinity])));
-			const t = db.transaction(["dms", "convs"], "readwrite");
+			const t = openDb().transaction(["dms", "convs"], "readwrite");
 			for (const k of keys) t.objectStore("dms").delete(k);
 			t.objectStore("convs").delete(`${me()}:${member}`);
 			await txDone(t);
@@ -3532,8 +3979,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			await reload(true);
 		}
 
+		/** @param {MouseEvent} e */
 		async function runLianChatImport(e) {
-			const btn = e.currentTarget;
+			const btn = /** @type {HTMLButtonElement} */ (e.currentTarget);
 			btn.disabled = true;
 			btn.textContent = "Importing…";
 			try {
@@ -3555,10 +4003,15 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// Visits to rooms with the same name (or names linked by a rename) are shown as one growing log,
 		// under the latest name seen
+		/** @type {Map<string, string>} */
 		let nameGroups = new Map();
-		const roomKey = (s) => nameGroups.get(s.room?.Name) || s.room?.Name || "(room)";
-		const withLive = (list) => (session ? [...list.filter((x) => x.id !== session.id), session] : list);
+		const roomKey = (/** @type {LBBSession} */ s) => nameGroups.get(s.room?.Name) || s.room?.Name || "(room)";
+		const withLive = (/** @type {LBBSession[]} */ list) => (session ? [...list.filter((x) => x.id !== session?.id), session] : list);
 
+		/**
+		 * @param {string} oldName
+		 * @param {string} newName
+		 */
 		async function onRoomRenamed(oldName, newName) {
 			// A favorite follows its room to the new name
 			if (favRooms.has(oldName)) {
@@ -3574,7 +4027,9 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (panel) await reload(section === "rooms");
 		}
 
+		/** @returns {{ name: string, visits: number, lines: number, last: number, live: boolean }[]} */
 		function roomGroups() {
+			/** @type {Map<string, { name: string, visits: number, lines: number, last: number, live: boolean }>} */
 			const groups = new Map();
 			for (const s of sessions) {
 				const name = roomKey(s);
@@ -3585,9 +4040,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				if (session && !session.closed && session.id === s.id) g.live = true;
 				groups.set(name, g);
 			}
-			return [...groups.values()].sort((a, b) => b.live - a.live || b.last - a.last);
+			return [...groups.values()].sort((a, b) => Number(b.live) - Number(a.live) || b.last - a.last);
 		}
 
+		/** @param {string} name */
 		function openRoom(name) {
 			roomName = name;
 			messageSearch = null;
@@ -3602,9 +4058,22 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Divider lines marking where each visit starts and stops, so gaps in the conversation are visible
+		/**
+		 * @param {LBBSession} s
+		 * @returns {LBBLogItem}
+		 */
 		const joinMarker = (s) => ({ marker: true, type: "Session", ts: s.start, text: "You joined", visit: s.id });
+		/**
+		 * @param {LBBSession} s
+		 * @returns {LBBLogItem}
+		 */
 		const endMarker = (s) => ({ marker: true, type: "Session", ts: s.end, text: s.closed ? "You left" : "Log ends here (page closed or disconnected)" });
 
+		/**
+		 * @param {LBBLogItem} l
+		 * @param {string} q
+		 * @param {LBBPeople | undefined} people
+		 */
 		function lineEl(l, q, people) {
 			if (l.type === "Session") {
 				// The visit you're in right now can't be deleted
@@ -3620,6 +4089,11 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Appends s with search matches wrapped in <mark>
+		/**
+		 * @param {HTMLElement} el
+		 * @param {string} s
+		 * @param {string} q
+		 */
 		function markInto(el, s, q) {
 			if (!q) return el.append(s);
 			const lower = s.toLowerCase();
@@ -3631,10 +4105,16 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			el.append(s.slice(i));
 		}
 
-		const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		const escapeRe = (/** @type {string} */ s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+		/** @type {WeakMap<LBBPeople, RegExp | null>} */
 		const peopleRe = new WeakMap();
 
 		// Every known name in the line gets that person's colour; clicking it opens their profile
+		/**
+		 * @param {string} text
+		 * @param {string} q
+		 * @param {LBBPeople | undefined} people
+		 */
 		function richText(text, q, people) {
 			const out = h("span", {});
 			if (!people || !people.size) {
@@ -3652,6 +4132,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				for (const m of text.matchAll(re)) {
 					markInto(out, text.slice(i, m.index), q);
 					const p = people.get(m[0]);
+					if (!p) continue;
 					const name = h("span", { class: "fm-name", style: `color:${p.color}`, title: `#${p.member}`, onclick: () => open(p.member, "profiles") });
 					markInto(name, m[0], q);
 					out.append(name);
@@ -3664,6 +4145,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 
 		// A readable name colour: the character's own label colour, lightened if too dark for this background,
 		// or a steady colour derived from the member number when there isn't one
+		/**
+		 * @param {number} member
+		 * @param {string} label
+		 */
 		function nameColor(member, label) {
 			const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(String(label || "").trim());
 			if (m) {
@@ -3680,9 +4165,14 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 		}
 
 		// Name → { member, color } for everyone seen in these visits (nicknames and real names)
+		/**
+		 * @param {LBBSession[]} visits
+		 * @returns {LBBPeople}
+		 */
 		function peopleOf(visits) {
+			/** @type {LBBPeople} */
 			const people = new Map();
-			const add = (member, name, label) => {
+			const add = (/** @type {number} */ member, /** @type {string} */ name, /** @type {string} */ label) => {
 				if (!name || !Number.isFinite(member) || people.has(name)) return;
 				people.set(name, { member, color: nameColor(member, label) });
 			};
@@ -3700,19 +4190,30 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			return people;
 		}
 
+		/**
+		 * @param {LBBLogItem} l
+		 * @param {string} q
+		 */
 		function lineVisible(l, q) {
 			if (l.type === "Session") return true;
 			const group = FILTER_TYPES.find(([, types]) => types.includes(l.type))?.[0] || "System";
 			return !hiddenTypes.has(group) && (!q || l.text.toLowerCase().includes(q));
 		}
 
+		/**
+		 * @param {HTMLElement} el
+		 * @param {string} name
+		 */
 		async function renderRoomLog(el, name) {
 			const linesEl = h("div", { class: "fm-scroll" }, h("div", { class: "fm-muted" }, "Loading…"));
+			/** @type {LBBRoomView} */
 			const view = (roomView = { name, linesEl, items: [], sessionIds: new Set(), visits: [], find: "" });
 			await ensureDb();
+			/** @type {LBBSession[]} */
 			const allVisits = await reqDone(storeOf("sessions").index("owner").getAll(me()));
 			nameGroups = buildNameGroups(withLive(allVisits));
 			const visits = allVisits.filter((s) => roomKey(s) === name).sort((a, b) => a.start - b.start);
+			/** @type {LBBLine[][]} */
 			const perVisit = await Promise.all(visits.map((s) => reqDone(storeOf("roomMsgs").index("session").getAll(s.id))));
 			if (roomView !== view) return;
 			if (!visits.length) return el.replaceChildren(h("p", { class: "fm-muted", style: "padding:16px" }, "No visits logged for this room."));
@@ -3740,10 +4241,10 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					"button",
 					{
 						class: hiddenTypes.has(label) ? "off" : "",
-						onclick: (e) => {
+						onclick: (/** @type {MouseEvent} */ e) => {
 							if (hiddenTypes.has(label)) hiddenTypes.delete(label);
 							else hiddenTypes.add(label);
-							e.currentTarget.classList.toggle("off", hiddenTypes.has(label));
+							/** @type {HTMLElement} */ (e.currentTarget).classList.toggle("off", hiddenTypes.has(label));
 							drawLines(view);
 						},
 					},
@@ -3793,7 +4294,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 									i ? ", " : "",
 									h(
 										"a",
-										{ href: "#", style: "color:var(--bcd-accent,#c9a8ff)", title: addonSummary(Number(n)), onclick: (e) => (e.preventDefault(), open(Number(n), "profiles")) },
+										{ href: "#", style: "color:var(--bcd-accent,#c9a8ff)", title: addonSummary(Number(n)), onclick: (/** @type {MouseEvent} */ e) => (e.preventDefault(), open(Number(n), "profiles")) },
 										`${who} (#${n})`
 									),
 								])
@@ -3808,11 +4309,16 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			linesEl.scrollTop = linesEl.scrollHeight;
 		}
 
+		/** @param {LBBRoomView} view */
 		function drawLines(view) {
 			const shown = view.items.filter((l) => lineVisible(l, view.find));
 			view.linesEl.replaceChildren(...shown.map((l) => lineEl(l, view.find, view.people)));
 		}
 
+		/**
+		 * @param {LBBRoomView} view
+		 * @param {LBBLogItem[]} items
+		 */
 		function appendItems(view, items) {
 			const el = view.linesEl;
 			const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
@@ -3821,32 +4327,47 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 			if (atBottom) el.scrollTop = el.scrollHeight;
 		}
 
-		const viewingRoom = (name) => panel && roomView && roomView.name === name && roomView.linesEl.isConnected;
+		/**
+		 * The room log on screen, when it's this room's
+		 * @param {string} name
+		 */
+		const viewingRoom = (name) => (panel && roomView && roomView.name === name && roomView.linesEl.isConnected ? roomView : null);
 
+		/** @param {LBBSession} s */
 		function onSessionStarted(s) {
-			if (viewingRoom(roomKey(s)) && !roomView.sessionIds.has(s.id)) {
-				roomView.sessionIds.add(s.id);
-				appendItems(roomView, [joinMarker(s)]);
+			const rv = viewingRoom(roomKey(s));
+			if (rv && !rv.sessionIds.has(s.id)) {
+				rv.sessionIds.add(s.id);
+				appendItems(rv, [joinMarker(s)]);
 			}
 			refreshSoon();
 		}
 
+		/** @param {LBBSession} s */
 		function onSessionClosed(s) {
-			if (viewingRoom(roomKey(s)) && roomView.sessionIds.has(s.id)) appendItems(roomView, [endMarker(s)]);
+			const rv = viewingRoom(roomKey(s));
+			if (rv && rv.sessionIds.has(s.id)) appendItems(rv, [endMarker(s)]);
 			refreshSoon();
 		}
 
+		/** @param {LBBLine[]} batch */
 		function onRoomLines(batch) {
 			const sid = batch[0]?.session;
-			if (session && session.id === sid && viewingRoom(roomKey(session))) {
-				if (!roomView.sessionIds.has(sid)) onSessionStarted(session);
+			const cur = session;
+			const rv = cur && cur.id === sid ? viewingRoom(roomKey(cur)) : null;
+			if (cur && rv) {
+				if (!rv.sessionIds.has(sid)) onSessionStarted(cur);
 				// Someone new may have joined since the log was drawn; include the live visit's members
-				roomView.people = peopleOf([...roomView.visits.filter((v) => v.id !== session.id), session]);
-				appendItems(roomView, batch);
+				rv.people = peopleOf([...rv.visits.filter((v) => v.id !== cur.id), cur]);
+				appendItems(rv, batch);
 			}
 			if (section === "rooms") refreshSoon();
 		}
 
+		/**
+		 * @param {LBBRoomView} view
+		 * @param {"txt" | "html" | "json"} format
+		 */
 		function exportRoom(view, format) {
 			const { name, visits, items } = view;
 			const r = visits[visits.length - 1]?.room || {};
@@ -3860,7 +4381,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 				`Visits: ${visits.length} (${fmtDate(visits[0]?.start)} – ${fmtDate(visits[visits.length - 1]?.end)})`,
 				`Members seen: ${Object.entries(members).map(([n, who]) => `${who} (#${n})`).join(", ")}`,
 			].filter(Boolean);
-			const asText = (l) => (l.type === "Session" ? `── ${l.text} · ${fmtDate(l.ts)} ──` : `[${fmtTime(l.ts)}] ${l.text}`);
+			const asText = (/** @type {LBBLogItem} */ l) => (l.type === "Session" ? `── ${l.text} · ${fmtDate(l.ts)} ──` : `[${fmtTime(l.ts)}] ${l.text}`);
 			const base = `room-${safeName(name)}-${new Date().toISOString().slice(0, 10)}`;
 			if (format === "json") return download(`${base}.json`, JSON.stringify({ format: "BlackBook-room", version: 2, room: name, visits, lines: items }, null, 2), "application/json");
 			if (format === "txt") return download(`${base}.txt`, `${header.join("\n")}\n${"-".repeat(40)}\n${items.map(asText).join("\n")}\n`, "text/plain");
@@ -3884,15 +4405,17 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// Collect the line keys first, then delete everything in one transaction
+		/** @param {number[]} ids */
 		async function deleteVisits(ids) {
 			await ensureDb();
-			const keys = (await Promise.all(ids.map((id) => reqDone(storeOf("roomMsgs").index("session").getAllKeys(id))))).flat();
-			const t = db.transaction(["roomMsgs", "sessions"], "readwrite");
+			const keys = (await Promise.all(ids.map((/** @type {number} */ id) => reqDone(storeOf("roomMsgs").index("session").getAllKeys(id))))).flat();
+			const t = openDb().transaction(["roomMsgs", "sessions"], "readwrite");
 			for (const k of keys) t.objectStore("roomMsgs").delete(k);
 			for (const id of ids) t.objectStore("sessions").delete(id);
 			await txDone(t);
 		}
 
+		/** @param {LBBRoomView} view */
 		async function deleteRoom(view) {
 			await deleteVisits(view.visits.map((s) => s.id));
 			roomName = null;
@@ -3900,6 +4423,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			await reload(true);
 		}
 
+		/** @param {number} id */
 		async function deleteVisit(id) {
 			await deleteVisits([id]);
 			// Redraw the room's log without that visit; if it was the only one, the room disappears from the list
@@ -3911,6 +4435,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			}
 		}
 
+		/** @param {string} q */
 		function showMessageSearch(q) {
 			messageSearch = q;
 			roomView = null;
@@ -3919,11 +4444,18 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// Newest first across every room log and conversation of this account
+		/**
+		 * @param {"roomMsgs" | "dms"} storeName
+		 * @param {string} q
+		 * @param {number} limit
+		 * @returns {Promise<any[]>}
+		 */
 		async function collectMatches(storeName, q, limit) {
 			await ensureDb();
+			/** @type {any[]} */
 			const out = [];
 			const range = IDBKeyRange.bound([me(), 0], [me(), Infinity]);
-			await new Promise((resolve, reject) => {
+			await new Promise((/** @type {(v?: unknown) => void} */ resolve, reject) => {
 				/** @type {IDBRequest<IDBCursorWithValue | null>} */
 				const req = storeOf(storeName).index("ownerTs").openCursor(range, "prev");
 				req.onsuccess = () => {
@@ -3937,15 +4469,21 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			return out;
 		}
 
+		/**
+		 * @param {HTMLElement} el
+		 * @param {string} query
+		 */
 		async function renderMessageSearch(el, query) {
 			const q = query.toLowerCase();
 			el.replaceChildren(h("p", { class: "fm-muted" }, `Searching for “${query}”…`));
 			const [lines, dms] = await Promise.all([collectMatches("roomMsgs", q, 300), collectMatches("dms", q, 200)]);
 			if (messageSearch !== query) return;
 			const byId = new Map(sessions.map((s) => [s.id, s]));
+			/** @type {Map<number, LBBPeople | undefined>} */
 			const peopleBySession = new Map();
-			const peopleFor = (id) => {
-				if (!peopleBySession.has(id)) peopleBySession.set(id, byId.has(id) ? peopleOf([byId.get(id)]) : null);
+			const peopleFor = (/** @type {number} */ id) => {
+				const sess = byId.get(id);
+				if (!peopleBySession.has(id)) peopleBySession.set(id, sess ? peopleOf([sess]) : undefined);
 				return peopleBySession.get(id);
 			};
 			// Wrapped in h() so the result arrays are flattened; replaceChildren would print them as text
@@ -3958,8 +4496,8 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 						? lines.map((l) =>
 							h(
 								"div",
-								{ class: "fm-hit", onclick: () => openRoom(byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)") },
-								h("div", { class: "fm-muted", style: "font-size:12px" }, `${byId.has(l.session) ? roomKey(byId.get(l.session)) : "(room)"} · ${fmtDate(l.ts)}`),
+								{ class: "fm-hit", onclick: () => openRoom((() => { const x = byId.get(l.session); return x ? roomKey(x) : "(room)"; })()) },
+								h("div", { class: "fm-muted", style: "font-size:12px" }, `${(() => { const x = byId.get(l.session); return x ? roomKey(x) : "(room)"; })()} · ${fmtDate(l.ts)}`),
 								lineEl(l, q, peopleFor(l.session))
 							)
 						)
@@ -3971,7 +4509,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 								"div",
 								{ class: "fm-hit", onclick: () => open(m.member, "chats") },
 								h("div", { class: "fm-muted", style: "font-size:12px" }, `${m.dir === "out" ? "You → " : ""}${displayName(m.member)} · ${m.kind} · ${fmtDate(m.ts)}`),
-								lineEl({ ...m, type: m.kind === "whisper" ? "Whisper" : "Chat" }, q)
+								lineEl({ ...m, type: m.kind === "whisper" ? "Whisper" : "Chat" }, q, undefined)
 							)
 						)
 						: h("p", { class: "fm-muted" }, "None.")
@@ -3987,7 +4525,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			renderList();
 			const res = await searchRooms("", lobbySpace);
 			if (res.error) lobbyError = /in progress/i.test(res.error) ? "A search is already running, try again in a moment." : res.error;
-			else lobbyRooms = res.rooms.sort((a, b) => (b.Friends?.length || 0) - (a.Friends?.length || 0) || b.MemberCount - a.MemberCount);
+			else lobbyRooms = (res.rooms || []).sort((a, b) => (b.Friends?.length || 0) - (a.Friends?.length || 0) || b.MemberCount - a.MemberCount);
 			renderList();
 			renderDetail();
 		}
@@ -3995,6 +4533,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		// ---------- profiles (detail) ----------
 
 		const TABS = ["Overview", "Description", "Appearance", "Crafts", "Room", "Shared settings", "Mod messages", "Raw"];
+		/** @type {Map<number, { name: string, room?: any, at?: number, error?: string }>} */
 		const roomLookups = new Map();
 
 		// Your own character read live from the game (the cached copy is only as fresh as the last room sync),
@@ -4012,7 +4551,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					Lovership: Player.Lovership,
 					Description: Player.Description,
 					Difficulty: Player.Difficulty,
-					ItemPermission: Player.ItemPermission,
+					ItemPermission: /** @type {any} */ (Player).ItemPermission,
 					LabelColor: Player.LabelColor,
 					Reputation: Player.Reputation,
 					OnlineSharedSettings: Player.OnlineSharedSettings,
@@ -4024,12 +4563,14 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			return { ...(cached || {}), key: keyFor(me()), member: me(), name: Player.Name, nickname: Player.Nickname || "", data, live: true, lastSeen: Date.now() };
 		}
 
+		/** @param {number} member */
 		async function toggleFavProfile(member) {
 			await updateRecord(member, (r) => (r.fav = !r.fav));
 			markSyncDirty();
 			await reload(true);
 		}
 
+		/** @param {number} member */
 		async function toggleBell(member) {
 			let on = false;
 			await updateRecord(member, (r) => (on = r.notifyOnline = !r.notifyOnline));
@@ -4040,6 +4581,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			if (on) requestOnlineFriends(); // starting point for this friend
 			await reload(true);
 		}
+		/** @param {number} member */
 		function profileBell(member) {
 			const on = !!records.get(member)?.notifyOnline;
 			const friend = friendIds().has(member);
@@ -4050,37 +4592,41 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					title: on
 						? "Notifying you when they come online (click to stop)"
 						: `Notify me when they come online${friend ? "" : " (works for mutual friends: the game only reports them as online)"}`,
-					onclick: (e) => (e.stopPropagation(), toggleBell(member)),
+					onclick: (/** @type {MouseEvent} */ e) => (e.stopPropagation(), toggleBell(member)),
 				},
 				on ? "🔔" : "🔕"
 			);
 		}
 
+		/** @param {number} member */
 		function profileStar(member) {
 			const on = !!records.get(member)?.fav;
 			return h(
 				"span",
-				{ class: `fm-star${on ? " on" : ""}`, title: on ? "Remove from favorite profiles" : "Add to favorite profiles", onclick: (e) => (e.stopPropagation(), toggleFavProfile(member)) },
+				{ class: `fm-star${on ? " on" : ""}`, title: on ? "Remove from favorite profiles" : "Add to favorite profiles", onclick: (/** @type {MouseEvent} */ e) => (e.stopPropagation(), toggleFavProfile(member)) },
 				on ? "★" : "☆"
 			);
 		}
 
+		/** @param {HTMLElement} el */
 		function renderProfile(el) {
 			if (selected == null) {
 				el.replaceChildren(h("p", { class: "fm-muted" }, "Pick someone on the left, or use /book <member number>."));
 				return;
 			}
-			const rec = selected === me() ? liveSelfRecord() : records.get(selected);
+			const who = selected;
+			const rec = who === me() ? liveSelfRecord() : records.get(who);
 			const d = rec?.data;
 			const online = onlineFriends.get(selected);
 			const name = rec?.nickname || rec?.name || friendNameOf(selected) || "(unknown)";
 
 			const note = h("textarea", { rows: 3, style: "width:100%", placeholder: "Private notes about this person", "data-key": `note-${selected}` });
 			note.value = rec?.note || "";
+			/** @type {ReturnType<typeof setTimeout> | undefined} */
 			let noteTimer;
 			note.addEventListener("input", () => {
 				clearTimeout(noteTimer);
-				noteTimer = setTimeout(() => updateRecord(selected, (r) => (r.note = note.value)).then(markSyncDirty), 400);
+				noteTimer = setTimeout(() => updateRecord(who, (r) => (r.note = note.value)).then(markSyncDirty), 400);
 			});
 
 			el.replaceChildren(
@@ -4094,8 +4640,8 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					h("span", {}, h("span", { class: `fm-dot${online || inRoomWith(selected) ? " on" : ""}` }), presenceText(selected, online)),
 					selected !== me() ? groupTags(selected) : null,
 					h("span", { style: "flex:1" }),
-					selected !== me() ? h("button", { onclick: () => open(selected, "chats") }, "Messages") : null,
-					rec && !rec.live ? h("button", { onclick: () => deleteRecord(selected) }, "Delete cache") : null
+					who !== me() ? h("button", { onclick: () => open(who, "chats") }, "Messages") : null,
+					rec && !rec.live ? h("button", { onclick: () => deleteRecord(who) }, "Delete cache") : null
 				),
 				h(
 					"div",
@@ -4108,14 +4654,19 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				),
 				note,
 				h("div", { id: "fm-tabs" }, TABS.map((t) => h("button", { class: t === detailTab ? "act" : "", onclick: () => ((detailTab = t), renderDetail()) }, t))),
-				renderProfileTab(detailTab, rec)
+				renderProfileTab(detailTab, /** @type {LBBProfile} */ (rec)) || ""
 			);
 		}
 
+		/** @param {([string, any] | null | false)[]} rows */
 		function kv(rows) {
-			return h("table", {}, rows.filter((r) => r && r[1] != null && r[1] !== "").map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
+			return h("table", {}, rows.filter((r) => !!r && r[1] != null && r[1] !== "").map((r) => /** @type {[string, any]} */ (r)).map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v))));
 		}
 
+		/**
+		 * @param {string} tab
+		 * @param {LBBProfile} rec
+		 */
 		function renderProfileTab(tab, rec) {
 			const d = rec?.data;
 			if (tab === "Mod messages") return renderModMessages(rec);
@@ -4125,7 +4676,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				case "Overview": {
 					const own = d.Ownership;
 					const lovers = Array.isArray(d.Lovership) ? d.Lovership : [];
-					const rep = Array.isArray(d.Reputation) ? d.Reputation.filter((r) => r.Value) : [];
+					const rep = Array.isArray(d.Reputation) ? d.Reputation.filter((/** @type {any} */ r) => r.Value) : [];
 					return h(
 						"div",
 						{},
@@ -4135,18 +4686,18 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 							["Title", d.Title],
 							["Member since", d.Creation ? fmtDate(d.Creation) : null],
 							["Owner", own && own.MemberNumber ? `${own.Name} (#${own.MemberNumber})${own.Stage === 0 ? " — trial" : ""}` : d.Owner],
-							["Lovers", lovers.length ? lovers.map((l) => `${l.Name}${l.MemberNumber ? ` (#${l.MemberNumber})` : ""}`).join(", ") : null],
+							["Lovers", lovers.length ? lovers.map((/** @type {any} */ l) => `${l.Name}${l.MemberNumber ? ` (#${l.MemberNumber})` : ""}`).join(", ") : null],
 							["Difficulty", d.Difficulty && d.Difficulty.Level != null ? String(d.Difficulty.Level) : null],
 							["Game version", d.OnlineSharedSettings?.GameVersion],
 							["Add-ons", addonChips(rec)],
 							["Item permission", d.ItemPermission != null ? String(d.ItemPermission) : null],
 							["First cached", fmtDate(rec.firstSeen)],
-							["Last online", lastOnlineAt(selected) ? fmtDate(lastOnlineAt(selected)) : null],
-							["Online since", rec.onlineSince && onlineOf(selected) ? fmtDate(rec.onlineSince) : null],
+							["Last online", selected != null && lastOnlineAt(selected) ? fmtDate(lastOnlineAt(selected)) : null],
+							["Online since", rec.onlineSince && selected != null && onlineOf(selected) ? fmtDate(rec.onlineSince) : null],
 							["Went offline", rec.lastOffline && rec.lastOffline > (rec.lastOnline || 0) ? `${fmtDate(rec.lastOffline)} (noticed)` : null],
 						]),
 						rep.length ? h("h3", {}, "Reputation") : null,
-						rep.length ? kv(rep.map((r) => [r.Type, String(r.Value)])) : null
+						rep.length ? kv(rep.map((/** @type {any} */ r) => [r.Type, String(r.Value)])) : null
 					);
 				}
 				case "Description": {
@@ -4155,13 +4706,13 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				}
 				case "Appearance": {
 					const fam = d.AssetFamily;
-					const worn = (d.Appearance || []).filter((a) => a && a.Group && !isBodyGroup(fam, a.Group));
-					const applied = worn.filter((a) => isItemGroup(fam, a.Group));
-					const outfit = worn.filter((a) => !isItemGroup(fam, a.Group));
+					const worn = (d.Appearance || []).filter((/** @type {any} */ a) => a && a.Group && !isBodyGroup(fam, a.Group));
+					const applied = worn.filter((/** @type {any} */ a) => isItemGroup(fam, a.Group));
+					const outfit = worn.filter((/** @type {any} */ a) => !isItemGroup(fam, a.Group));
 					// Their outfit can be copied/saved/worn only with their consent (see outfitAccess); yours always
 					const access = outfitAccess(rec.member, d);
 					const canWearHere = rec.member !== me() && access.ok;
-					const craftCell = (a) => {
+					const craftCell = (/** @type {any} */ a) => {
 						const craft = a.Craft || a.Property?.Craft;
 						if (!craft) return "";
 						return h(
@@ -4171,7 +4722,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 							effectChips(craft.Effects)
 						);
 					};
-					const lockCell = (a) => {
+					const lockCell = (/** @type {any} */ a) => {
 						const p = a.Property || {};
 						if (!p.LockedBy) return "";
 						return `${lockLabel(fam, p.LockedBy)}${p.LockMemberNumber ? ` by #${p.LockMemberNumber}` : ""}${p.RemoveTimer ? ` · until ${fmtDate(p.RemoveTimer)}` : ""}`;
@@ -4189,7 +4740,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 									"table",
 									{},
 									h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Lock"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
-									applied.map((a) =>
+									applied.map((/** @type {any} */ a) =>
 										h(
 											"tr",
 											{},
@@ -4199,7 +4750,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 											h("td", {}, itemSettings(a)),
 											h("td", {}, lockCell(a)),
 											h("td", {}, craftCell(a)),
-												canWearHere ? h("td", {}, wearButton(restraintPiece(a))) : null
+												canWearHere ? h("td", {}, (() => { const r = restraintPiece(a); return r ? wearButton(r) : ""; })()) : null
 										)
 									)
 								)
@@ -4211,7 +4762,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 									"table",
 									{},
 									h("tr", {}, h("th", {}, "Slot"), h("th", {}, "Item"), h("th", {}, "Colours"), h("th", {}, "Settings"), h("th", {}, "Crafted"), canWearHere ? h("th", {}, "") : null),
-									outfit.map((a) =>
+									outfit.map((/** @type {any} */ a) =>
 										h(
 											"tr",
 											{},
@@ -4254,10 +4805,17 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// An outfit as { pieces, full }: pieces are the removable clothing/accessories (Name, Group, Color, Property without
 		// locks) that Wear puts on; full is every customizable appearance slot (hair, eyes, skin too), like the game's Copy
+		/**
+		 * @param {any} d a character as saved (AssetFamily, Appearance)
+		 * @returns {LBBSnapshot}
+		 */
 		function snapshotOutfit(d) {
 			const fam = d.AssetFamily || "Female3DCG";
+			/** @type {LBBPiece[]} */
 			const pieces = [];
+			/** @type {LBBLook[]} */
 			const full = [];
+			/** @type {LBBPiece[]} */
 			const restraints = [];
 			for (const a of d.Appearance || []) {
 				const g = a && AssetGroupGet(fam, a.Group);
@@ -4269,9 +4827,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				if (!g || g.Category !== "Appearance") continue;
 				if (g.AllowCustomize) full.push({ A: a.Name, G: a.Group, C: a.Color });
 				if (!g.AllowNone) continue;
+				/** @type {LBBPiece} */
 				const piece = { Name: a.Name, Group: a.Group, Color: a.Color };
 				if (a.Property && typeof a.Property === "object") {
-					const props = JSON.parse(JSON.stringify(a.Property));
+					const props = /** @type {Record<string, any>} */ (JSON.parse(JSON.stringify(a.Property)));
 					for (const k of LOCK_PROPS) delete props[k];
 					delete props.Craft;
 					if (Object.keys(props).length) piece.Property = props;
@@ -4284,11 +4843,16 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		// A restraint as a plain item. A crafted one becomes the generic item it was made from: its colours and
 		// chosen options stay, the crafter's name, description, property and effects don't. Locks never come along.
 		// craftName is only for showing where it came from and is left out of codes.
+		/**
+		 * @param {any} a an item as saved
+		 * @returns {LBBPiece | null}
+		 */
 		function restraintPiece(a) {
 			if (!a || !a.Name || !a.Group) return null;
+			/** @type {LBBPiece} */
 			const piece = { Name: a.Name, Group: a.Group, Color: a.Color };
 			if (a.Property && typeof a.Property === "object") {
-				const props = JSON.parse(JSON.stringify(a.Property));
+				const props = /** @type {Record<string, any>} */ (JSON.parse(JSON.stringify(a.Property)));
 				for (const k of RESTRAINT_DROP) delete props[k];
 				if (Object.keys(props).length) piece.Property = props;
 			}
@@ -4299,12 +4863,17 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// Restraint codes are the game's item bundle (Name, Group, Color, Property), the format BCX-style outfit
 		// codes with restraints use
-		const bundleCode = (rows) =>
+		const bundleCode = (/** @type {LBBPiece[]} */ rows) =>
 			LZString.compressToBase64(JSON.stringify(rows.map((r) => ({ Name: r.Name, Group: r.Group, Color: r.Color, ...(r.Property ? { Property: r.Property } : {}) }))));
 
 		// Outfit codes use the game's own wardrobe Copy/Paste format: LZString base64 of [{ A: asset, G: group, C: colour }]
-		const outfitCode = (rows) => LZString.compressToBase64(JSON.stringify(rows.map((r) => (r.A ? r : { A: r.Name, G: r.Group, C: r.Color }))));
+		const outfitCode = (/** @type {(LBBPiece | LBBLook)[]} */ rows) => LZString.compressToBase64(JSON.stringify(rows.map((r) => ("A" in r ? r : { A: r.Name, G: r.Group, C: r.Color }))));
 
+		/**
+		 * @param {string} label
+		 * @param {() => string} getText
+		 * @param {string} title
+		 */
 		function copyButton(label, getText, title) {
 			const btn = h(
 				"button",
@@ -4347,6 +4916,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		const RESTRAINT_DROP = new Set([...LOCK_PROPS, "Craft", "Difficulty", "Effect", "Block", "Hide", "HideItem", "HideItemExclude", "AllowActivity", "AllowActivityOn", "Attribute", "SetPose", "AllowActivePose"]);
 
 		// Same rules the wardrobe applies, plus owning the item: null when it can be worn, otherwise why not
+		/**
+		 * @param {LBBPiece} a
+		 * @returns {string | null}
+		 */
 		function wearProblem(a) {
 			if (isItemGroup(Player.AssetFamily, a.Group)) return restraintProblem(a);
 			if (!Player.CanChangeOwnClothes?.()) return "You can't change clothes right now.";
@@ -4359,16 +4932,20 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// The checks the game's own item menu makes before you use a restraint on yourself
+		/**
+		 * @param {LBBPiece} a
+		 * @returns {string | null}
+		 */
 		function restraintProblem(a) {
 			const asset = AssetGet(Player.AssetFamily, a.Group, a.Name);
 			if (!asset) return "That item doesn't exist for your character.";
 			if (!Player.CanInteract?.()) return "You can't use your hands right now.";
 			if (inRoom() && typeof InventoryChatRoomAllow === "function" && !InventoryChatRoomAllow(asset.Category)) return "This room doesn't allow that kind of item.";
-			if (typeof InventoryGroupIsBlocked === "function" && InventoryGroupIsBlocked(Player, a.Group)) return "That spot is blocked by something you're wearing.";
+			if (typeof InventoryGroupIsBlocked === "function" && InventoryGroupIsBlocked(Player, /** @type {AssetGroupItemName} */ (a.Group))) return "That spot is blocked by something you're wearing.";
 			const cur = InventoryGet(Player, a.Group);
 			if (cur && InventoryItemHasEffect(cur, "Lock", true)) return "Something locked is already there.";
 			if (!InventoryAvailable(Player, a.Name, a.Group)) return "You don't own this item.";
-			if (typeof InventoryBlockedOrLimited === "function" && InventoryBlockedOrLimited(Player, { Asset: asset })) return "Your own item permissions block it.";
+			if (typeof InventoryBlockedOrLimited === "function" && InventoryBlockedOrLimited(Player, /** @type {Item} */ ({ Asset: asset }))) return "Your own item permissions block it.";
 			const sb = asset.SelfBondage || 0;
 			const always = typeof DialogAlwaysAllowRestraint === "function" && DialogAlwaysAllowRestraint();
 			if (sb > 0 && !always && SkillGetLevel(Player, "SelfBondage") < sb) return sb <= 10 ? `Needs self-bondage level ${sb}.` : "Can't be used on yourself.";
@@ -4378,10 +4955,12 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// A restraint goes on as the plain item, then gets its options back through the game's own option code, which
 		// works out the effects and blocks those options bring
+		/** @param {LBBPiece} a */
 		function wearRestraint(a) {
 			const item = InventoryWear(Player, a.Name, a.Group, a.Color, null, Player.MemberNumber, null, false);
 			if (!item) return false;
-			const props = a.Property && typeof a.Property === "object" ? JSON.parse(JSON.stringify(a.Property)) : {};
+			/** @type {Record<string, any>} */
+			const props = a.Property && typeof a.Property === "object" ? /** @type {Record<string, any>} */ (JSON.parse(JSON.stringify(a.Property))) : {};
 			for (const k of RESTRAINT_DROP) delete props[k];
 			const rec = props.TypeRecord && typeof props.TypeRecord === "object" ? props.TypeRecord : null;
 			delete props.TypeRecord;
@@ -4399,6 +4978,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// Puts the pieces on you (colours and options, never locks), leaving every other slot as it is.
 		// Restraints that need another one first (an add-on on a device) get a second try once the rest are on.
+		/** @param {LBBPiece[]} pieces */
 		function wearPieces(pieces) {
 			const applied = [];
 			const skipped = [];
@@ -4434,17 +5014,19 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			return { applied, skipped };
 		}
 
+		/** @param {LBBPiece} a */
 		function wearClothing(a) {
 			InventoryWear(Player, a.Name, a.Group, a.Color, undefined, undefined, undefined, false);
 			const item = InventoryGet(Player, a.Group);
 			if (item && a.Property && typeof a.Property === "object") {
-				const props = JSON.parse(JSON.stringify(a.Property));
+				const props = /** @type {Record<string, any>} */ (JSON.parse(JSON.stringify(a.Property)));
 				for (const k of LOCK_PROPS) delete props[k];
 				delete props.Craft;
 				item.Property = { ...(item.Property || {}), ...props };
 			}
 		}
 
+		/** @param {LBBPiece} a */
 		function wearButton(a) {
 			const problem = wearProblem(a);
 			const label = isItemGroup(Player.AssetFamily, a.Group) ? "Put on" : "Wear";
@@ -4469,6 +5051,11 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		// interact with them, and their wardrobe is open to others. Your own outfits are always yours. Settings can
 		// switch the check off (outfitCopyAnyone) for people who are fine with it.
 		// cached: their last saved profile data, used for the wardrobe setting when they aren't in the room
+		/**
+		 * @param {number | null | undefined} member
+		 * @param {any} [cached] their last saved profile data
+		 * @returns {{ ok: boolean, override?: boolean, why?: string }}
+		 */
 		function outfitAccess(member, cached) {
 			if (member == null || member === me()) return { ok: true };
 			if (prefs.outfitCopyAnyone) return { ok: true, override: true };
@@ -4492,6 +5079,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			return { ok: true };
 		}
 
+		/** @param {string | undefined} why */
 		function outfitLocked(why) {
 			return h(
 				"p",
@@ -4501,6 +5089,11 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// Copy/wear buttons for an outfit snapshot; canWear is false when it's what you're already wearing
+		/**
+		 * @param {LBBSnapshot} snap
+		 * @param {boolean} canWear
+		 * @param {...any} extra
+		 */
 		function outfitTools(snap, canWear, ...extra) {
 			const result = h("span", { class: "fm-muted", style: "font-size:12px" });
 			const wearAll = canWear
@@ -4531,6 +5124,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// Copy/put-on buttons for the restraints in a snapshot. Putting them on is on you: nothing goes to the chat
 		// and no lock is added, so you can take them off again unless the items themselves stop you.
+		/**
+		 * @param {LBBSnapshot} snap
+		 * @param {boolean} canWear
+		 */
 		function restraintTools(snap, canWear) {
 			const list = snap.restraints || [];
 			if (!list.length) return null;
@@ -4558,6 +5155,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			);
 		}
 
+		/**
+		 * @param {LBBPiece[]} list
+		 * @param {boolean} canWear
+		 */
 		function restraintsTable(list, canWear) {
 			return h(
 				"table",
@@ -4584,18 +5185,28 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		const PREVIEW_ID = "BlackBookPreview";
 		let previewChain = Promise.resolve();
 
+		/**
+		 * @param {any[]} bundle
+		 * @param {IAssetFamily} family
+		 */
 		function previewCanvas(bundle, family) {
 			const cv = h("canvas", { class: "fm-preview", width: 300, height: 555 });
 			previewChain = previewChain.then(() => drawPreview(cv, bundle, family)).catch((err) => console.warn(TAG, "preview failed", err));
 			return cv;
 		}
 
+		/**
+		 * @param {HTMLCanvasElement} cv
+		 * @param {any[]} bundle
+		 * @param {IAssetFamily} family
+		 */
 		async function drawPreview(cv, bundle, family) {
 			if (typeof CharacterLoadSimple !== "function" || typeof ServerAppearanceLoadFromBundle !== "function") return;
 			const C = CharacterLoadSimple(PREVIEW_ID);
-			ServerAppearanceLoadFromBundle(C, family || "Female3DCG", JSON.parse(JSON.stringify(bundle)), undefined);
+			ServerAppearanceLoadFromBundle(C, family || "Female3DCG", /** @type {AppearanceBundle} */ (JSON.parse(JSON.stringify(bundle))), undefined);
 			CharacterRefresh(C, false, false);
 			const ctx = cv.getContext("2d");
+			if (!ctx) return;
 			// The character canvas has room above/below for tall items; the body sits in a CanvasDrawWidth x 1000 box
 			// starting at CanvasUpperOverflow. Crop to that box plus a margin (hats, wings), keeping the preview's aspect.
 			const upper = typeof CanvasUpperOverflow === "number" ? CanvasUpperOverflow : 700;
@@ -4606,6 +5217,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				await sleep(i ? 300 : 30);
 				if (i > 0 && !cv.isConnected) break;
 				CharacterAppearanceBuildCanvas(C);
+				if (!C.Canvas) continue;
 				const sx = Math.round((C.Canvas.width - sw) / 2);
 				const sy = upper - 60;
 				ctx.clearRect(0, 0, cv.width, cv.height);
@@ -4619,7 +5231,9 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// A saved outfit as a full appearance: the full look, with the pieces (and their options) laid over it
+		/** @param {LBBOutfit} o a saved outfit */
 		function outfitBundle(o) {
+			/** @type {Map<string, any>} */
 			const byGroup = new Map(o.full.map((r) => [r.G, { Group: r.G, Name: r.A, Color: r.C }]));
 			for (const p of [...o.pieces, ...(o.restraints || [])]) {
 				const { craftName: _craftName, ...item } = p;
@@ -4630,28 +5244,40 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 
 		// ----- saved outfits (kept in the account's meta store as "outfit:<id>") -----
 
+		/** @type {LBBOutfit[]} */
 		let savedOutfits = [];
+		/** @type {number | null} */
 		let outfitSel = null;
 		let outfitFavOnly = false;
 
+		/**
+		 * @param {LBBSnapshot} snap
+		 * @param {string} name
+		 * @param {{ member: number | null, name: string }} from
+		 */
 		async function saveOutfit(snap, name, from) {
 			await ensureDb();
 			const id = Date.now();
-			const rec = { key: `outfit:${id}`, id, name, from: from?.member ?? null, fromName: from?.name || "", savedAt: id, family: snap.family, fav: false, ...snap };
+			/** @type {LBBOutfit} */
+			const rec = { ...snap, key: `outfit:${id}`, id, name, from: from?.member ?? null, fromName: from?.name || "", savedAt: id, fav: false };
 			await reqDone(storeOf("meta", "readwrite").put(rec));
 			return rec;
 		}
 
 		// Two snapshots are the same look when their clothes and restraints match
-		const outfitSig = (o) => JSON.stringify([o.pieces || [], o.restraints || []]);
+		const outfitSig = (/** @type {{ pieces?: LBBPiece[], restraints?: LBBPiece[] }} */ o) => JSON.stringify([o.pieces || [], o.restraints || []]);
 
 		// Saving keeps the restraints as well when there are any; "without restraints" keeps just the clothes.
 		// The profile view redraws as soon as the save lands, so the button reads Outfits to show it's saved: the same
 		// look from the same person shows "Saved ✓" instead of saving a second copy.
+		/**
+		 * @param {any} d
+		 * @param {LBBProfile} rec
+		 */
 		function saveOutfitButton(d, rec) {
 			const snap = snapshotOutfit(d);
 			const who = rec.nickname || rec.name || `#${rec.member}`;
-			const make = (label, title, withRestraints) => {
+			const make = (/** @type {string} */ label, /** @type {string} */ title, /** @type {boolean} */ withRestraints) => {
 				const keep = withRestraints ? snap : { ...snap, restraints: [] };
 				const sig = outfitSig(keep);
 				const have = savedOutfits.find((o) => o.from === rec.member && outfitSig(o) === sig);
@@ -4698,6 +5324,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			await reload(true);
 		}
 
+		/**
+		 * @param {number} id
+		 * @param {Record<string, any>} changes
+		 */
 		async function updateOutfit(id, changes) {
 			await ensureDb();
 			const rec = await reqDone(storeOf("meta").get(`outfit:${id}`));
@@ -4706,6 +5336,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			await reload();
 		}
 
+		/** @param {number} id */
 		async function deleteOutfit(id) {
 			await ensureDb();
 			await reqDone(storeOf("meta", "readwrite").delete(`outfit:${id}`));
@@ -4713,6 +5344,10 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			await reload(true);
 		}
 
+		/**
+		 * @param {LBBPiece[]} pieces
+		 * @param {boolean} canWear
+		 */
 		function piecesTable(pieces, canWear) {
 			return h(
 				"table",
@@ -4732,12 +5367,16 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			);
 		}
 
+		/** @param {HTMLElement} el */
 		function renderOutfit(el) {
 			const o = savedOutfits.find((x) => x.id === outfitSel);
 			if (!o) return el.replaceChildren(h("p", { class: "fm-muted" }, "Pick a saved outfit on the left. Save outfits from a profile's Appearance tab, or save your own."));
-			const access = outfitAccess(o.from, records.get(o.from)?.data);
+			const access = outfitAccess(o.from, o.from != null ? records.get(o.from)?.data : undefined);
 			const nameEl = h("input", { type: "text", value: o.name, style: "font-size:16px;font-weight:600;min-width:240px" });
-			nameEl.addEventListener("change", () => nameEl.value.trim() && updateOutfit(o.id, { name: nameEl.value.trim() }));
+			nameEl.addEventListener("change", () => {
+				const v = nameEl.value.trim();
+				if (v) updateOutfit(o.id, { name: v }).catch((err) => console.warn(TAG, err));
+			});
 			el.replaceChildren(
 				h(
 					"div",
@@ -4746,7 +5385,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 					nameEl,
 					h("span", { class: "fm-muted" }, `${o.fromName ? `from ${o.fromName}${o.from != null ? ` (#${o.from})` : ""} · ` : ""}saved ${fmtDate(o.savedAt)}`),
 					h("span", { style: "flex:1" }),
-					o.from != null && o.from !== me() ? h("button", { onclick: () => open(o.from, "profiles") }, "Profile") : null,
+					o.from != null && o.from !== me() ? h("button", { onclick: () => open(o.from ?? undefined, "profiles") }, "Profile") : null,
 					confirmButton("Delete outfit", () => deleteOutfit(o.id))
 				),
 				h(
@@ -4767,13 +5406,14 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			);
 		}
 
+		/** @param {LBBOutfit} o */
 		function outfitStar(o) {
 			return h(
 				"span",
 				{
 					class: `fm-star${o.fav ? " on" : ""}`,
 					title: o.fav ? "Remove from favorite outfits" : "Add to favorite outfits",
-					onclick: async (e) => {
+					onclick: async (/** @type {MouseEvent} */ e) => {
 						e.stopPropagation();
 						await updateOutfit(o.id, { fav: !o.fav });
 						if (outfitSel === o.id) renderDetail();
@@ -4805,7 +5445,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 			...LOCK_PROPS,
 		]);
 
-		const textOr = (key, fallback) => {
+		const textOr = (/** @type {string} */ key, /** @type {string} */ fallback) => {
 			try {
 				const t = AssetTextGet(key);
 				return t && !t.startsWith("MISSING") ? t : fallback;
@@ -4815,6 +5455,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		};
 
 		// Readable labels for TypeRecord, using the item's own dialog text ("Wrist Tie", "Hood: Hood Up")
+		/** @param {any} a an item as saved */
 		function optionLabels(a) {
 			const rec = a.Property?.TypeRecord;
 			if (!rec || typeof rec !== "object") return [];
@@ -4830,17 +5471,18 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				}
 				const modDef = modular?.modules?.find((m) => m.Key === k);
 				const o = modDef?.Options?.[idx];
-				if (modDef && o) out.push(`${textOr(`${modular.dialogPrefix?.module || ""}${modDef.Name}`, modDef.Name)}: ${textOr(`${modular.dialogPrefix?.option || ""}${o.Name}`, o.Name)}`);
+				if (modular && modDef && o) out.push(`${textOr(`${modular.dialogPrefix?.module || ""}${modDef.Name}`, modDef.Name)}: ${textOr(`${modular.dialogPrefix?.option || ""}${o.Name}`, o.Name)}`);
 				else if (idx) out.push(`${k}: ${idx}`);
 			}
 			return out;
 		}
 
-		const shortValue = (v) => {
+		const shortValue = (/** @type {unknown} */ v) => {
 			const s = typeof v === "string" ? v : JSON.stringify(v);
 			return s.length > 24 ? `${s.slice(0, 22)}…` : s;
 		};
 
+		/** @param {any} a */
 		function itemSettings(a) {
 			const p = a.Property || {};
 			const parts = [];
@@ -4868,7 +5510,9 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 		}
 
 		// Each chip links to the add-on's page (or a GitHub search); "About these add-ons" lists what each one does
+		/** @param {LBBProfile} rec */
 		function addonChips(rec) {
+			/** @type {{ name: string, label: string, note: string, unknown?: boolean, repo?: string | null }[]} */
 			let entries; // [{ name, label, note, unknown, repo }]
 			let footnote;
 			if (rec?.live && typeof bcModSdk?.getModsInfo === "function") {
@@ -4897,7 +5541,7 @@ header{border-bottom:1px solid #444;margin-bottom:1em;padding-bottom:.5em;white-
 				}));
 				footnote = "Only add-ons that announce themselves in rooms can be seen.";
 			}
-			const link = (attrs, ...kids) => h("a", { target: "_blank", rel: "noopener noreferrer", ...attrs }, ...kids);
+			const link = (/** @type {Record<string, any>} */ attrs, /** @type {any[]} */ ...kids) => h("a", { target: "_blank", rel: "noopener noreferrer", ...attrs }, ...kids);
 			const chips = entries.map((e) => {
 				const info = addonInfo(e.name);
 				const tip = info ? `${info.title}
@@ -4933,24 +5577,27 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/** @param {number} member */
 		function addonSummary(member) {
 			const rec = records.get(member);
 			const list = rec ? detectAddons(rec).filter((a) => !a.name.startsWith("Unknown")) : [];
 			return list.length ? `Add-ons: ${list.map((a) => (a.version ? `${a.name} ${a.version}` : a.name)).join(", ")}` : "No add-ons detected";
 		}
 
+		/** @param {Record<string, unknown> | null | undefined} effects */
 		function effectChips(effects) {
 			const list = activeEffects(effects);
 			if (!list.length) return null;
 			return h(
 				"div",
 				{ class: "fm-chips" },
-				list.map(([k, v]) => h("span", { class: "fm-chip", title: craftPropDesc(k) }, `${craftPropName(k)}${v > 1 ? ` ×${v}` : ""}`))
+				list.map(([k, v]) => h("span", { class: "fm-chip", title: craftPropDesc(k) }, `${craftPropName(k)}${Number(v) > 1 ? ` ×${Number(v)}` : ""}`))
 			);
 		}
 
+		/** @param {string | string[] | null | undefined} color */
 		function colorSwatches(color) {
-			const colors = (Array.isArray(color) ? color : String(color || "").split(",")).map((c) => c.trim()).filter(Boolean);
+			const colors = (Array.isArray(color) ? color : String(color || "").split(",")).map((c) => String(c).trim()).filter(Boolean);
 			if (!colors.length) return null;
 			if (colors.every((c) => !c.startsWith("#"))) return "default";
 			return h(
@@ -4965,6 +5612,10 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/**
+		 * @param {any} c
+		 * @param {IAssetFamily} family
+		 */
 		function craftCard(c, family) {
 			const effects = activeEffects(c.Effects);
 			// Option index 0 everywhere is just the item's default variant
@@ -4983,7 +5634,7 @@ Not in the add-on directory: opens a GitHub search.`;
 							? h(
 								"div",
 								{},
-								effects.map(([k, v]) => h("div", {}, h("b", {}, `${craftPropName(k)}${v > 1 ? ` ×${v}` : ""}`), craftPropDesc(k) ? ` — ${craftPropDesc(k)}` : ""))
+								effects.map(([k, v]) => h("div", {}, h("b", {}, `${craftPropName(k)}${Number(v) > 1 ? ` ×${Number(v)}` : ""}`), craftPropDesc(k) ? ` — ${craftPropDesc(k)}` : ""))
 							)
 							: `${craftPropName("Normal")}${craftPropDesc("Normal") ? ` — ${craftPropDesc("Normal")}` : ""}`,
 					],
@@ -4997,6 +5648,7 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/** @param {Record<string, any>} r */
 		function roomCard(r) {
 			const friends = Array.isArray(r.Friends) ? r.Friends : [];
 			return h(
@@ -5016,13 +5668,15 @@ Not in the add-on directory: opens a GitHub search.`;
 					["Locked", r.Locked != null ? (r.Locked ? "yes" : "no") : null],
 					["Private", r.Private != null ? (r.Private ? "yes" : "no") : null],
 					["Blocked categories", Array.isArray(r.BlockCategory) && r.BlockCategory.length ? r.BlockCategory.join(", ") : null],
-					["Your friends inside", friends.length ? friends.map((f) => `${f.MemberName} (#${f.MemberNumber})`).join(", ") : null],
+					["Your friends inside", friends.length ? friends.map((/** @type {any} */ f) => `${f.MemberName} (#${f.MemberNumber})`).join(", ") : null],
 				])
 			);
 		}
 
+		/** @param {LBBProfile} rec */
 		function renderProfileRoom(rec) {
 			const member = selected;
+			if (member == null) return null;
 			const online = onlineFriends.get(member);
 			let current;
 			if (inRoomWith(member) && syncedRoom) {
@@ -5036,9 +5690,10 @@ Not in the add-on directory: opens a GitHub search.`;
 					h(
 						"button",
 						{
-							onclick: async (e) => {
-								e.target.disabled = true;
-								e.target.textContent = "Searching…";
+							onclick: async (/** @type {MouseEvent} */ e) => {
+								const btn = /** @type {HTMLButtonElement} */ (e.target);
+								btn.disabled = true;
+								btn.textContent = "Searching…";
 								const result = await lookupRoom(online.ChatRoomName, online.ChatRoomSpace);
 								roomLookups.set(member, { name: online.ChatRoomName, ...result });
 								if (selected === member) renderDetail();
@@ -5048,7 +5703,7 @@ Not in the add-on directory: opens a GitHub search.`;
 					),
 					lookup && !stale
 						? lookup.room
-							? h("div", {}, h("div", { class: "fm-muted" }, `Searched ${ago(lookup.at)} `, joinButton(lookup.room.Name, lookup.room)), roomCard(lookup.room))
+							? h("div", {}, h("div", { class: "fm-muted" }, `Searched ${ago(lookup.at || 0)} `, joinButton(lookup.room.Name, lookup.room)), roomCard(lookup.room))
 							: h("p", { class: "fm-muted" }, lookup.error)
 						: null
 				);
@@ -5069,6 +5724,7 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/** @param {LBBProfile} rec */
 		function renderModMessages(rec) {
 			const msgs = Object.entries(rec?.modMessages || {});
 			if (!msgs.length) return h("p", { class: "fm-muted" }, "No hidden add-on messages captured from this person yet.");
@@ -5081,6 +5737,7 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/** @param {number} member */
 		async function deleteRecord(member) {
 			await dbDelete(keyFor(member));
 			await reload();
@@ -5095,9 +5752,11 @@ Not in the add-on directory: opens a GitHub search.`;
 			);
 		}
 
+		/** @param {File} file */
 		async function importFile(file) {
 			if (!file) return;
 			try {
+				/** @type {any} */
 				let parsed;
 				try {
 					parsed = JSON.parse(await file.text());
@@ -5126,7 +5785,7 @@ Not in the add-on directory: opens a GitHub search.`;
 				noteStatus(`Import: ${n} profile${n === 1 ? "" : "s"} imported${older ? `, ${older} skipped (the copy here is newer)` : ""}.`);
 			} catch (e) {
 				console.warn(TAG, "import failed", e);
-				noteStatus(`Import failed: ${e?.message || e}`);
+				noteStatus(`Import failed: ${e instanceof Error ? e.message : String(e)}`);
 			}
 		}
 
@@ -5154,11 +5813,13 @@ Not in the add-on directory: opens a GitHub search.`;
 	// ---------- wiring ----------
 
 	ui.mount();
+	/** @type {number | null} */
 	let scannedFor = null;
 	let lastOutboxPoll = 0; // last online-friends query sent by the tick
 	const ONLINE_POLL_OPEN_MS = 30_000;
 	const ONLINE_POLL_BG_MS = 5 * 60_000; // with the window closed: often enough for "last online" to be close
-	let pruneArmed = null;
+	/** @type {ReturnType<typeof setTimeout> | undefined} */
+	let pruneArmed;
 	const tickTimer = setInterval(() => {
 		watchSocket();
 		ui.syncTabVisibility();
@@ -5183,19 +5844,19 @@ Not in the add-on directory: opens a GitHub search.`;
 		}
 		// Retention cleanup a minute after login, then every 6 hours
 		if ((prefs.roomLogDays > 0 || prefs.chatDays > 0) && !pruneArmed && Date.now() - lastPrune > 6 * 3_600_000)
-			pruneArmed = setTimeout(() => ((pruneArmed = null), pruneOldData()), lastPrune ? 0 : 60_000);
+			pruneArmed = setTimeout(() => ((pruneArmed = undefined), pruneOldData()), lastPrune ? 0 : 60_000);
 		watchChatLog();
 		// Lines drawn before the session existed (page reload, script start) were skipped; pick them up once it does
 		if (session && !session.closed && observedLog && scannedFor !== session.id) {
 			scannedFor = session.id;
-			for (const n of observedLog.children) captureLine(n);
+			for (const n of observedLog.children) if (n instanceof HTMLElement) captureLine(n);
 		}
 		const here = inRoom();
 		if (here && prefs.logRooms && (!session || session.closed || session.owner !== me()) && !resuming && currentRoomName()) resumeCurrentRoom().catch((err) => console.warn(TAG, err));
 		else if (!here && session && !session.closed) closeSession();
 	}, 1000);
 
-	const openBook = (args) => {
+	const openBook = (/** @type {string} */ args) => {
 		const n = parseInt(String(args || "").trim(), 10);
 		ui.open(Number.isFinite(n) ? n : undefined, Number.isFinite(n) ? "profiles" : undefined).catch((err) => console.warn(TAG, err));
 	};
@@ -5205,7 +5866,7 @@ Not in the add-on directory: opens a GitHub search.`;
 			Pref: "cmdChat",
 			Tag: "chat",
 			Description: "[member number]: open your chats (a conversation, if given)",
-			Action: (args) => {
+			Action: (/** @type {string} */ args) => {
 				const n = parseInt(String(args || "").trim(), 10);
 				ui.open(Number.isFinite(n) ? n : undefined, "chats").catch((err) => console.warn(TAG, err));
 			},
@@ -5226,13 +5887,13 @@ Not in the add-on directory: opens a GitHub search.`;
 	window.BlackBook = {
 		version: MOD_INFO.version,
 		open: ui.open,
-		get: (member) => dbGet(keyFor(member)),
+		get: (/** @type {number} */ member) => dbGet(keyFor(member)),
 		all: () => dbAllForOwner(Player.MemberNumber),
 		onlineFriends: () => new Map(onlineFriends),
 		currentSession: () => (session ? { ...session } : null),
 		sessions: async () => (await ensureDb(), reqDone(storeOf("sessions").index("owner").getAll(me()))),
-		sessionLines: async (id) => (await ensureDb(), reqDone(storeOf("roomMsgs").index("session").getAll(id))),
-		conversation: async (member) => (await ensureDb(), reqDone(storeOf("dms").index("conv").getAll(IDBKeyRange.bound([me(), member, 0], [me(), member, Infinity])))),
+		sessionLines: async (/** @type {number} */ id) => (await ensureDb(), reqDone(storeOf("roomMsgs").index("session").getAll(id))),
+		conversation: async (/** @type {number} */ member) => (await ensureDb(), reqDone(storeOf("dms").index("conv").getAll(IDBKeyRange.bound([me(), member, 0], [me(), member, Infinity])))),
 		database: () => (db ? db.name : null),
 		gameUnread,
 		importLianChat,
