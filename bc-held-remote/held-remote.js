@@ -10,7 +10,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_HeldRemote", fullName: "BC Toolkit: Held Remote", version: "0.1.4-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-held-remote" };
+	const MOD_INFO = { name: "BCT_HeldRemote", fullName: "BC Toolkit: Held Remote", version: "0.1.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-held-remote" };
 	const TAG = "[HeldRemote]";
 	/** @param {number} m */
 	const ON_KEY = (m) => `HeldRemote.${m}`;

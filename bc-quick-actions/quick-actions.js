@@ -8,7 +8,7 @@
 (async () => {
 
 	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.5-beta.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
+	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.5", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
