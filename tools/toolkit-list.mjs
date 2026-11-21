@@ -47,6 +47,9 @@ const tags = execFileSync("git", ["tag", "-l"], { cwd: root, encoding: "utf8" })
 	const tk = tags.filter((t) => t.startsWith("tk-v")).map((t) => t.slice(4));
 	const rel = tk.filter((v) => RELEASE.test(v)).sort(newestFirst)[0];
 	const pre = tk.filter((v) => PRERELEASE.test(v)).sort(newestFirst)[0];
+	// The repository the files are in: the dock and the loaders build their addresses from it (change it when the
+	// repository is renamed)
+	list.repo = "bc-toolkit";
 	if (rel) list.dock = `tk-v${rel}`;
 	const beta = [rel, pre].filter(Boolean).sort(newestFirst)[0];
 	if (beta) list.dockBeta = `tk-v${beta}`;

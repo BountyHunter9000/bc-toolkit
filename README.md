@@ -140,6 +140,15 @@ versions), and commit that: `loader.js` and `loader-beta.js` read it from there,
 FUSAM installs get the new dock within minutes, without `loader.js` changing. Tampermonkey sees the new `@version` on `main` and
 offers the update.
 
+### Renaming the repository
+
+The dock (from version 21) and `loader.js` build every address from the repository name in `toolkit.json` (`repo`),
+so a rename needs no reinstall: rename it on GitHub, then in one commit set the new name in `tools/toolkit-list.mjs`
+(`list.repo`), in `REPO` / `TK_REPO` (loaders and dock) and in the scripts’ `@require`, `@updateURL` and `@downloadURL`, and
+run `node tools/toolkit-list.mjs`. Running docks read the list through the old address (GitHub redirects it), remember
+the new name and load from it; Tampermonkey follows the redirect to the updated scripts. Only names under
+`BountyHunter9000` are accepted.
+
 ## License
 
 [GNU GPL v3.0 or later](LICENSE). You're free to use, change and share the add-ons; if you release a

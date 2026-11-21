@@ -9,9 +9,14 @@
 (() => {
 	"use strict";
 	const BETA = false; // loader-beta.js: true (test versions switched on, the dock's newest test version)
-	const FALLBACK = "tk-v1.3.2";
-	const LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
-	const dockUrl = (tag) => `https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@${tag}/bc-dock/bc-dock.js`;
+	const FALLBACK = "tk-v1.3.3";
+	// The repository: this name to start with, then whatever toolkit.json names ("repo"), so a renamed repository only
+	// needs a new list (GitHub redirects the old name's raw files). Only the name comes from the list.
+	const OWNER = "BountyHunter9000";
+	const REPO = "bc-toolkit";
+	const NAME = /^[A-Za-z0-9._-]{1,100}$/;
+	const LISTS = [`https://raw.githubusercontent.com/${OWNER}/${REPO}/main/toolkit.json`, `https://cdn.jsdelivr.net/gh/${OWNER}/${REPO}@main/toolkit.json`];
+	const dockUrl = (repo, tag) => `https://cdn.jsdelivr.net/gh/${OWNER}/${repo}@${tag}/bc-dock/bc-dock.js`;
 	if (window.BCToolkit && window.BCToolkit.loader === true) return;
 	window.BCToolkit = BETA ? { loader: true, beta: true } : { loader: true };
 
@@ -24,18 +29,19 @@
 				if (!r.ok) continue;
 				const list = await r.json();
 				const tag = BETA ? list.dockBeta || list.dock : list.dock;
+				const repo = typeof list.repo === "string" && NAME.test(list.repo) ? list.repo : REPO;
 				// Only a dock tag of this repository, nothing else the list might say
-				if (typeof tag === "string" && /^tk-v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(tag)) return tag;
+				if (typeof tag === "string" && /^tk-v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(tag)) return { repo, tag };
 			} catch {}
 		}
-		return FALLBACK;
+		return { repo: REPO, tag: FALLBACK };
 	}
 
 	// Added even when a dock is already here (from an old one-add-on script): the newer copy takes over, the same or an
 	// older one steps aside, and a dock from version 14 on starts the loader once it sees the flag above
-	dockTag().then((tag) => {
+	dockTag().then(({ repo, tag }) => {
 		const s = document.createElement("script");
-		s.src = dockUrl(tag);
+		s.src = dockUrl(repo, tag);
 		s.crossOrigin = "anonymous";
 		s.onerror = () => console.warn("[Nightstand] couldn't download the dock from", s.src);
 		document.head.append(s);

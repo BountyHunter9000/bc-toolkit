@@ -9,7 +9,7 @@
 "use strict";
 
 (() => {
-	const VERSION = 20; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the Nightstand loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a Nightstand page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail); 19: steps aside for the game's toast notices (R134 beeps), code cleanup; 20: renamed Nightstand (was BC Toolkit)
+	const VERSION = 21; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the Nightstand loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a Nightstand page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail); 19: steps aside for the game's toast notices (R134 beeps), code cleanup; 20: renamed Nightstand (was BC Toolkit); 21: the repository's name comes from toolkit.json ("repo"), so a renamed repository needs only a new list
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -43,8 +43,8 @@
 	 * @typedef {{ x: number, y: number, open: boolean }} DockFloat a floating window: where, and whether it's open
 	 * @typedef {{ preset: string, bg?: string, accent?: string, glow?: string }} DockTheme
 	 * @typedef {{ id: string, name: string, icon: string, about: string, path: string, global: string, prefix: string, versions: string[], beta: string[] }} TkAddon
-	 * @typedef {{ format: "BCToolkit", addons: TkAddon[] }} TkList
-	 * @typedef {{ side: string, y: number | null, x: number | null, opacity: number, widths: Record<string, number>, active: string | null, float: Record<string, DockFloat>, theme: DockTheme, titleName?: boolean, lockDock?: boolean, devWatch?: boolean, tk?: Record<string, string>, tkBeta?: boolean, tkList?: TkList & { at?: number } }} DockState
+	 * @typedef {{ format: "BCToolkit", addons: TkAddon[], repo?: string }} TkList the add-on list; repo: the repository the files are in, when it says
+	 * @typedef {{ side: string, y: number | null, x: number | null, opacity: number, widths: Record<string, number>, active: string | null, float: Record<string, DockFloat>, theme: DockTheme, titleName?: boolean, lockDock?: boolean, devWatch?: boolean, tk?: Record<string, string>, tkBeta?: boolean, tkList?: TkList & { at?: number }, tkRepo?: string }} DockState
 	 * @typedef {{ spec: BCDockPanelSpec & { order: number }, tab: HTMLDivElement, body: HTMLElement, actions: HTMLElement, sum: string, visible: boolean }} DockPanelBase what the flyout needs (⚙ is one too)
 	 * @typedef {{ title: HTMLSpanElement, ver: HTMLSpanElement, sum: HTMLSpanElement, body: HTMLDivElement, sizer: HTMLDivElement, dockBtn: HTMLButtonElement, head: HTMLDivElement, el: HTMLDivElement }} DockWin
 	 * @typedef {DockPanelBase & { badge: string | null, dot: HTMLSpanElement, badgeEl: HTMLSpanElement, icon: HTMLSpanElement, win: DockWin | null, setTitle(t: string): void, setSummary(t: string | null | undefined): void, setBadge(b: string | number | null | undefined): void, setDot(d: string | null | undefined): void, setVisible(v: boolean): void }} DockPanel
@@ -1415,8 +1415,20 @@
 	//   window.BCToolkit = { loader: true };
 	// Without it (the separate add-on scripts) none of this runs. listUrl and fileBase ("…/{tag}/") in the same object
 	// point it somewhere else, and checkMs / tickMs change the 24 h and 10 min, for testing.
-	const TK_LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
-	const TK_FILES = "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@{tag}/";
+	// Where the files live: a repository of this account, named by toolkit.json itself ("repo"), so a renamed repository
+	// only needs a new list. The name the dock was built with is the starting point and the last resort. Only the name
+	// comes from the list; the account and the hosts are fixed here, so a list can't point anywhere else.
+	const TK_OWNER = "BountyHunter9000";
+	const TK_REPO = "bc-toolkit";
+	const TK_REPO_NAME = /^[A-Za-z0-9._-]{1,100}$/;
+	// The repository last named by a list that loaded, or the built-in one
+	const tkRepo = () => (typeof state.tkRepo === "string" && TK_REPO_NAME.test(state.tkRepo) ? state.tkRepo : TK_REPO);
+	/** @param {string} repo */
+	const tkListsOf = (repo) => [`https://raw.githubusercontent.com/${TK_OWNER}/${repo}/main/toolkit.json`, `https://cdn.jsdelivr.net/gh/${TK_OWNER}/${repo}@main/toolkit.json`];
+	// The last known home first, then the built-in one (a dock that missed a rename still finds the list there: GitHub
+	// redirects a renamed repository's raw files)
+	const tkLists = () => [...new Set([...tkListsOf(tkRepo()), ...tkListsOf(TK_REPO)])];
+	const tkFiles = () => `https://cdn.jsdelivr.net/gh/${TK_OWNER}/${tkRepo()}@{tag}/`;
 	const tkCfg = () => (window.BCToolkit && typeof window.BCToolkit === "object" ? window.BCToolkit : {});
 	const tkOn = () => tkCfg().loader === true;
 	// Carried over when a newer dock takes over, so nothing is loaded twice.
@@ -1459,12 +1471,13 @@
 				versions: a.versions.filter((/** @type {unknown} */ v) => ok(/^\d+\.\d+\.\d+$/, v)).slice(0, 20),
 				beta: Array.isArray(a.beta) ? a.beta.filter((/** @type {unknown} */ v) => ok(/^\d+\.\d+\.\d+-[0-9A-Za-z.-]+$/, v)).slice(0, 20) : [],
 			}));
-		return addons.length ? { format: /** @type {const} */ ("BCToolkit"), addons } : null;
+		const repo = ok(TK_REPO_NAME, raw.repo) ? raw.repo : undefined;
+		return addons.length ? { format: /** @type {const} */ ("BCToolkit"), addons, repo } : null;
 	}
 
 	async function tkFetch() {
 		const listUrl = tkCfg().listUrl;
-		const urls = typeof listUrl === "string" ? [listUrl] : TK_LISTS;
+		const urls = typeof listUrl === "string" ? [listUrl] : tkLists();
 		for (const u of urls) {
 			const ctl = new AbortController();
 			const t = setTimeout(() => ctl.abort(), 8000);
@@ -1476,6 +1489,11 @@
 				tk.list = list;
 				tk.listAt = Date.now();
 				tk.listErr = null;
+				// The list says the files have moved: remember the new home and read from there from now on
+				if (list.repo && list.repo !== tkRepo()) {
+					console.log("[BCDock]", `Nightstand moved to ${TK_OWNER}/${list.repo}`);
+					state.tkRepo = list.repo;
+				}
 				state.tkList = { ...list, at: tk.listAt };
 				save();
 				return true;
@@ -1561,7 +1579,7 @@
 	 * @param {TkAddon} a
 	 * @param {string} v
 	 */
-	const tkUrl = (a, v) => (tkCfg().fileBase ?? TK_FILES).replace("{tag}", a.prefix + v) + a.path;
+	const tkUrl = (a, v) => (tkCfg().fileBase ?? tkFiles()).replace("{tag}", a.prefix + v) + a.path;
 
 	// Adds the add-on's file as a script from its release. A copy already running is replaced by the new one itself
 	// (each add-on unloads its previous copy when it starts), so switching versions needs no reload.
