@@ -147,6 +147,7 @@
       ]
     }
   ],
-  "dock": "tk-v1.3.2",
-  "dockBeta": "tk-v1.3.2"
+  "dock": "tk-v1.3.3",
+  "dockBeta": "tk-v1.3.3",
+  "repo": "bc-toolkit"
 }
