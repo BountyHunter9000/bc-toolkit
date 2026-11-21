@@ -1,6 +1,6 @@
 # Game Fixes
 
-*Part of [BC Toolkit](../README.md). Called Vibe Fix up to 0.1.1; the folder, `window.VibeFix` and the `vf-v` tags
+*Part of [Nightstand](../README.md). Called Vibe Fix up to 0.1.1; the folder, `window.VibeFix` and the `vf-v` tags
 keep that name.*
 
 Stopgaps for bugs in Bondage Club **R134** itself. Each fix is a small ModSDK hook that lets the game's own code do
@@ -63,7 +63,7 @@ Nothing is sent anywhere by the add-on itself, and no game function is replaced:
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+2. Install **[Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)**, the one script for all the add-ons, and
    confirm in Tampermonkey.
 3. Reload the game. Game Fixes runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).

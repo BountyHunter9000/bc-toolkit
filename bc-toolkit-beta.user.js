@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         BC Toolkit (beta)
 // @namespace    bc-toolkit
-// @version      1.3.1
-// @description  BC Toolkit with test versions switched on: each add-on starts at Beta (its newest test version, or the release once that's newer). For testers; install this or BC Toolkit, not both
+// @version      1.3.2
+// @description  Now called Nightstand: this script keeps working and updating, or install nightstand-beta.user.js instead (not both). Nightstand with test versions switched on: each add-on starts at Beta (its newest test version, or the release once that's newer). For testers; install this or Nightstand, not both
 // @author       BountyHunter9000
 // @license      GPL-3.0-or-later
 // @homepageURL  https://github.com/BountyHunter9000/bc-toolkit
@@ -17,7 +17,7 @@
 // @match        https://www.bondageprojects.com/*
 // @run-at       document-end
 // @grant        none
-// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@tk-v1.3.1/bc-dock/bc-dock.js
+// @require      https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@tk-v1.3.2/bc-dock/bc-dock.js
 // @updateURL    https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit-beta.user.js
 // @downloadURL  https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit-beta.user.js
 // ==/UserScript==

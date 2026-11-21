@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
-// BC Toolkit (beta) without Tampermonkey: the same thing bc-toolkit-beta.user.js does (test versions switched on), for the browser console, a bookmark, or an
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
+// Nightstand (beta) without Tampermonkey: the same thing nightstand-beta.user.js does (test versions switched on), for the browser console, a bookmark, or an
 // add-on manager such as FUSAM. It turns the loader on and adds the dock; the dock then loads the add-ons you have
 // switched on (⚙ → Add-ons). Running it twice, or alongside the Tampermonkey script, does nothing more.
 // Which dock release to add comes from toolkit.json on GitHub (updated within minutes of a release), so this file
@@ -9,7 +9,7 @@
 (() => {
 	"use strict";
 	const BETA = true; // loader.js: false. Test versions switched on, and the dock's newest test version
-	const FALLBACK = "tk-v1.3.1";
+	const FALLBACK = "tk-v1.3.2";
 	const LISTS = ["https://raw.githubusercontent.com/BountyHunter9000/bc-toolkit/main/toolkit.json", "https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@main/toolkit.json"];
 	const dockUrl = (tag) => `https://cdn.jsdelivr.net/gh/BountyHunter9000/bc-toolkit@${tag}/bc-dock/bc-dock.js`;
 	if (window.BCToolkit && window.BCToolkit.loader === true) return;
@@ -37,7 +37,7 @@
 		const s = document.createElement("script");
 		s.src = dockUrl(tag);
 		s.crossOrigin = "anonymous";
-		s.onerror = () => console.warn("[BC Toolkit] couldn't download the dock from", s.src);
+		s.onerror = () => console.warn("[Nightstand] couldn't download the dock from", s.src);
 		document.head.append(s);
 	});
 })();

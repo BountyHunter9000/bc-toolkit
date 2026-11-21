@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
 // Vibe Link for Bondage Club
 // Drives real toys (through Intiface Central / buttplug.io) from the vibrators your character wears.
 // Phase 1: five-level mapping, smooth ramps between levels, safety stop, strength cap.
@@ -7,8 +7,8 @@
 
 (async () => {
 
-	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_VibeLink", fullName: "BC Toolkit: Vibe Link", version: "0.15.1", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
+	// ModSDK: the full name groups the add-ons as "Nightstand: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "NS_VibeLink", fullName: "Nightstand: Vibe Link", version: "0.15.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-vibe-link" };
 	const TAG = "[VibeLink]";
 	const SETTINGS_KEY = "VibeLink";
 	const LOCAL_KEY = "VibeLink.local"; // per-browser things: panel position, open/closed, paused
@@ -2858,7 +2858,7 @@
 
 		function mount() {
 			if (panel) return;
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no panel");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the Nightstand script brings it), so there's no panel");
 			document.head.append(h("style", { id: "vl-style" }, CSS));
 			panel = BCDock.add({ id: "vibe-link", title: "Vibe Link", icon: "〰", order: 30, version: MOD_INFO.version, width: 230, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => render() });
 			root = panel.body || null;

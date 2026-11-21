@@ -1,6 +1,6 @@
 # Dock
 
-*Part of [BC Toolkit](../README.md). Not installed on its own: the BC Toolkit script brings it along.*
+*Part of [Nightstand](../README.md). Not installed on its own: the Nightstand script brings it along.*
 
 A small shared frame that Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet and Held Remote put their panels and buttons in, so they
 stop floating separately and overlapping the game. It's only the frame: each add-on keeps its own
@@ -8,7 +8,7 @@ settings, storage and logic.
 
 ## How it fits together
 
-- `bc-dock.js` is loaded by the BC Toolkit script (`@require`), and loads the add-ons after it (see
+- `bc-dock.js` is loaded by the Nightstand script (`@require`), and loads the add-ons after it (see
   [One script for all add-ons](#one-script-for-all-add-ons)). Each add-on adds its panel or button to the dock;
   an add-on that's switched off simply has no tab.
 - If two different versions are loaded, the newer one takes over and keeps the panels already added. For
@@ -71,7 +71,7 @@ shows **〰** while it's connected to Intiface, e.g. **🔕〰 Sky · Bondage Cl
 
 ## One script for all add-ons
 
-With the **BC Toolkit** script (`bc-toolkit.user.js`) the dock is also the loader. Every add-on runs at its
+With the **Nightstand** script (`nightstand.user.js`) the dock is also the loader. Every add-on runs at its
 latest release unless you choose otherwise: ⚙ starts with **Add-ons**, a menu for each add-on:
 
 - **Off**: not loaded. Switching an add-on off stops it straight away (its tab and hooks go).
@@ -90,8 +90,8 @@ How it works:
   is loaded from its release tag through jsDelivr, so a version
   never changes under you. If the list can't be fetched (offline), the one from last time is used.
 - The add-ons start a couple of seconds after the game's own scripts are ready.
-- In mod lists (WCE, FUSAM and others that show ModSDK mods) they appear as **BC Toolkit: Afterglow**, **BC
-  Toolkit: Quiet** and so on, each with a link to its folder in the repository.
+- In mod lists (WCE, FUSAM and others that show ModSDK mods) they appear as **Nightstand: Afterglow**, **Nightstand: Quiet**
+  and so on, each with a link to its folder in the repository.
 - If an older one-add-on script (retired) is still installed, that script keeps running its add-on and the menu
   is greyed out with a note. Delete the old script in Tampermonkey to choose here instead.
 - Nothing else changes for the add-ons: each one still unloads its previous copy when a new one starts, which is
@@ -111,21 +111,21 @@ fixed like any release, and **Latest never picks one**.
   behind a release. New test versions are pointed out like any update (dot on ⚙, **Update now**).
 - Switching test versions off puts anything on Beta or a test version back on Latest right away; switching on again
   brings those choices back.
-- **BC Toolkit (beta)** (`bc-toolkit-beta.user.js`, or `loader-beta.js` without Tampermonkey, or FUSAM's "dev"
-  choice) is BC Toolkit with test versions switched on and every add-on starting at Beta. Install it **instead of**
-  BC Toolkit, not next to it. It's also how a test version of the dock itself is tried: its `@require` can point at
+- **Nightstand (beta)** (`nightstand-beta.user.js`, or `loader-beta.js` without Tampermonkey, or FUSAM's "dev"
+  choice) is Nightstand with test versions switched on and every add-on starting at Beta. Install it **instead of**
+  Nightstand, not next to it. It's also how a test version of the dock itself is tried: its `@require` can point at
   a `tk-vX.Y.Z-beta.N` tag (and `loader-beta.js` loads `dockBeta` from `toolkit.json`) while the normal script stays
   on the release.
 
 ### In the game's Preferences
 
-The dock adds a **BC Toolkit** page to the game's **Preferences → Extensions**, next to WCE's, BCX's and the
+The dock adds a **Nightstand** page to the game's **Preferences → Extensions**, next to WCE's, BCX's and the
 others: the same add-on menus and status lines (or, without the loader, the versions running), and a button that
 opens the dock's ⚙.
 
 ### Without Tampermonkey
 
-`loader.js` in the repository does what the BC Toolkit script does: it turns the loader on and adds the dock. Which
+`loader.js` in the repository does what the Nightstand script does: it turns the loader on and adds the dock. Which
 dock release it adds comes from `toolkit.json` (`dock`), so a new dock reaches it within minutes and `loader.js`
 itself hardly ever changes. The [main README](../README.md#without-tampermonkey) has a console line and a bookmark that load it; an
 add-on manager can load it the same way (`tools/fusam-entry.json` is the entry for FUSAM's list). Running it twice,

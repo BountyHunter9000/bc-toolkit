@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
 // Quick Actions for Bondage Club
 // A small floating bar in chat rooms: pick a target, then fire favourite or recent activities
 // with one click (or Alt+1..9) instead of going through the character dialog each time.
@@ -7,8 +7,8 @@
 
 (async () => {
 
-	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_QuickActions", fullName: "BC Toolkit: Quick Actions", version: "0.5.5", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
+	// ModSDK: the full name groups the add-ons as "Nightstand: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "NS_QuickActions", fullName: "Nightstand: Quick Actions", version: "0.5.6", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quick-actions" };
 	const TAG = "[QuickActions]";
 	const SETTINGS_KEY = "QuickActions";
 	const MAX_RECENT = 10;
@@ -249,7 +249,7 @@
 
 		function mount() {
 			document.head.append(h("style", { id: "qa-style" }, CSS));
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no bar");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the Nightstand script brings it), so there's no bar");
 			panel = BCDock.add({ id: "quick-actions", title: "Quick Actions", icon: "⚡", order: 20, version: MOD_INFO.version, width: 190, minWidth: 150, maxWidth: 240, alignStart: true, visible: false, onToggle: () => render() });
 			bar = panel.body || null;
 			if (bar) bar.id = "qa-body";

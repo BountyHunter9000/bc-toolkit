@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
 // Quiet for Bondage Club
 // One click on the dock mutes every game notification in this tab (popups, tab title, favicon and the alarm
 // sound, for chat messages, people joining, beeps, disconnects and LARP turns), and another click brings them
@@ -8,8 +8,8 @@
 
 (async () => {
 
-	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Quiet", fullName: "BC Toolkit: Quiet", version: "0.2.2", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
+	// ModSDK: the full name groups the add-ons as "Nightstand: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "NS_Quiet", fullName: "Nightstand: Quiet", version: "0.2.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-quiet" };
 	const TAG = "[Quiet]";
 	/** @param {number} m */
 	const KEY = (m) => `Quiet.${m}`;
@@ -116,7 +116,7 @@
 			if (!window.BCDock) {
 				if (!warned) {
 					warned = true;
-					console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no button. /quiet still works.");
+					console.warn(TAG, "bc-dock.js isn't loaded (the Nightstand script brings it), so there's no button. /quiet still works.");
 				}
 				return;
 			}

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
-// Types shared by the BC Toolkit add-ons: the dock's API and what each add-on puts on window. Only used when type
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
+// Types shared by the Nightstand add-ons: the dock's API and what each add-on puts on window. Only used when type
 // checking (tools/check.mjs checks the add-ons against the game's own declarations); the game never loads it.
 
 /** A panel an add-on adds to the dock (BCDock.add) */
@@ -75,7 +75,7 @@ interface BCToolkitAddon {
 
 interface Window {
 	BCDock?: BCDockApi;
-	/** Set by the BC Toolkit script (or loader.js): the dock is also the add-on loader */
+	/** Set by the Nightstand script (or loader.js): the dock is also the add-on loader */
 	BCToolkit?: { loader?: boolean; beta?: boolean; checkMs?: number; tickMs?: number; listUrl?: string; fileBase?: string };
 	/** Developer tools, only when a private loader turns them on */
 	BCDockDev?: { reload?: boolean; watch?: boolean };

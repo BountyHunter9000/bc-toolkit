@@ -1,10 +1,12 @@
-# BC Toolkit
+# Nightstand
+
+*Formerly **BC Toolkit**: renamed because other add-ons already use that name and its BCT abbreviation.*
 
 Small, consent-first add-ons for [Bondage Club](https://www.bondageprojects.com/), sharing one dock
-on the edge of the screen. Install them all with **one script**, BC Toolkit, and turn off any you don't want in
+on the edge of the screen. Install them all with **one script**, Nightstand, and turn off any you don't want in
 the dock.
 
-**[Install BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** (all add-ons,
+**[Install Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)** (all add-ons,
 one script; see [Installing](#installing))
 
 | Add-on | What it does |
@@ -17,14 +19,14 @@ one script; see [Installing](#installing))
 | 🎚 [Held Remote](bc-held-remote/README.md) | A Vibe Remote someone else left in your hand works on your own vibrators while your arms are tied, still within your owner's and BCX's remote rules. Off until you switch it on. `/heldremote` |
 | 🔧 [Game Fixes](bc-vibe-fix/README.md) | Stopgaps for bugs in R134 itself: vibrators that never turn down (Off and lower levels, and Escalate starting over, work again), and picked locks that stay locked. No settings. |
 
-The [dock](bc-dock/README.md) comes with BC Toolkit: a rail of tabs with
+The [dock](bc-dock/README.md) comes with Nightstand: a rail of tabs with
 themes, opacity and position settings (its ⚙ tab). It also puts the character's name in the browser tab
 ("Sky · Bondage Club"), so your game tabs are easy to tell apart.
 
 ## Installing
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)** and confirm
+2. Install **[Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)** and confirm
    in Tampermonkey.
 3. Reload the game. Every add-on starts at its latest release; switch off the ones you don't want in the dock's
    ⚙ → **Add-ons**.
@@ -32,16 +34,18 @@ themes, opacity and position settings (its ⚙ tab). It also puts the character'
 Each add-on has a menu: **Off**, **Latest** (moves to new releases each time the game loads), or a fixed version
 to stay on. Changes apply right away, without reloading the game. Your choices are kept in this browser. See
 [the dock's README](bc-dock/README.md#one-script-for-all-add-ons) for more. The same menus are in the game's
-**Preferences → Extensions → BC Toolkit**.
+**Preferences → Extensions → Nightstand**.
 
-**Helping test new versions?** Install **[BC Toolkit (beta)](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit-beta.user.js)**
-instead of BC Toolkit (not both). Every add-on then runs its newest test version where there is one, and its release
-otherwise. Or keep BC Toolkit and switch on **Show test versions** in ⚙ to try just one add-on's test version.
+**Already have the BC Toolkit script?** It keeps working and updating, and runs the same dock and add-ons, so you don’t have to do anything. To switch, install Nightstand, then delete BC Toolkit in Tampermonkey (running both is harmless but pointless). Your settings carry over.
+
+**Helping test new versions?** Install **[Nightstand (beta)](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand-beta.user.js)**
+instead of Nightstand (not both). Every add-on then runs its newest test version where there is one, and its release
+otherwise. Or keep Nightstand and switch on **Show test versions** in ⚙ to try just one add-on's test version.
 [More about test versions](bc-dock/README.md#test-versions).
 
 ### Without Tampermonkey
 
-On a phone, or if you'd rather not install a script manager, load BC Toolkit straight into the game page. It does
+On a phone, or if you'd rather not install a script manager, load Nightstand straight into the game page. It does
 the same as the script, but only for that page load, so you repeat it after each reload.
 
 - **Console:** on the game page press F12, open **Console**, paste this and press Enter. (The first time, Chrome and
@@ -61,8 +65,8 @@ Don't use these while the Tampermonkey script is installed; if you do, nothing l
 
 **Had the older one-script-per-add-on installs?** Those scripts are retired and no longer update. Delete them in
 Tampermonkey (Dashboard: Little Black Book, Quick Actions, Vibe Link, Afterglow, Quiet, Held Remote, Vibe Fix) and
-keep only BC Toolkit. Your settings and saved data stay: they belong to the add-ons, not the scripts. Until you
-do, BC Toolkit leaves each of those add-ons to its old script, and its menu says so.
+keep only Nightstand. Your settings and saved data stay: they belong to the add-ons, not the scripts. Until you
+do, Nightstand leaves each of those add-ons to its old script, and its menu says so.
 
 The add-ons work with the usual add-ons (WCE, BCX, LSCG, ...) and use
 [ModSDK](https://github.com/Jomshir98/bondage-club-mod-sdk) hooks only, never overwriting game
@@ -114,23 +118,23 @@ Each add-on is released on its own, with a tag: `book-vX.Y.Z`, `qa-vX.Y.Z`, `vl-
 
 1. Bump the version in the add-on's `MOD_INFO` and update its README. `node tools/check.mjs` should pass.
 2. Commit, then tag that commit (`git tag qa-v0.5.2`).
-3. Run `node tools/toolkit-list.mjs` to add the new version to `toolkit.json` (the list BC Toolkit's menus are
+3. Run `node tools/toolkit-list.mjs` to add the new version to `toolkit.json` (the list Nightstand's menus are
    filled from), and commit that.
 4. Push the commits and the tag.
 
-BC Toolkit loads each add-on from its tag through jsDelivr, so a release never changes under anyone.
+Nightstand loads each add-on from its tag through jsDelivr, so a release never changes under anyone.
 Everyone on **Latest** gets it the next time the game loads.
 
 **Test versions** go through the same steps with a pre-release version and tag, e.g. `MOD_INFO.version`
 `"0.9.0-beta.1"` and tag `ag-v0.9.0-beta.1`. `node tools/toolkit-list.mjs` puts it in the add-on's `beta` list,
 which only people with test versions switched on see; Latest is unaffected. When the change is ready, release it as
 `0.9.0` as usual, and testers on Beta move to it. A test version of the dock: tag `tk-vX.Y.Z-beta.N`, point
-`bc-toolkit-beta.user.js` at it, and run the list script (it becomes `dockBeta`, which `loader-beta.js` loads);
-`bc-toolkit.user.js` and `loader.js` stay on the release.
+`nightstand-beta.user.js` at it, and run the list script (it becomes `dockBeta`, which `loader-beta.js` loads);
+`nightstand.user.js` and `loader.js` stay on the release.
 
 A new add-on also needs an entry in `toolkit.json` (id, name, icon, file path, the name of its `window` object, tag
-prefix). A change to the dock is released with BC Toolkit itself: bump `@version` and the `@require` tag in
-`bc-toolkit.user.js` and `bc-toolkit-beta.user.js`, and tag that commit `tk-vX.Y.Z`. Then run
+prefix). A change to the dock is released with Nightstand itself: bump `@version` and the `@require` tag in
+`nightstand.user.js` and `nightstand-beta.user.js`, and tag that commit `tk-vX.Y.Z`. Then run
 `node tools/toolkit-list.mjs`, which records the new dock in `toolkit.json` (`dock`, and `dockBeta` for test
 versions), and commit that: `loader.js` and `loader-beta.js` read it from there, so the console, bookmark and
 FUSAM installs get the new dock within minutes, without `loader.js` changing. Tampermonkey sees the new `@version` on `main` and

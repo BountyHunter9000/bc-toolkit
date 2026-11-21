@@ -1,6 +1,6 @@
 # Afterglow
 
-*Part of [BC Toolkit](../README.md).*
+*Part of [Nightstand](../README.md).*
 
 A small Bondage Club add-on that keeps count of your orgasms and what stood in their way: the time since
 your last one, your records, and how often you were denied, ruined or held back in between. You can
@@ -172,7 +172,7 @@ How it works:
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+2. Install **[Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)**, the one script for all the add-ons, and
    confirm in Tampermonkey.
 3. Reload the game. Afterglow runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).

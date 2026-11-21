@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
-// Little Black Book for Bondage Club (BC Toolkit)
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
+// Little Black Book for Bondage Club (Nightstand)
 // - Profiles: caches the character data the server sends while you share a chat room with someone,
 //   so you can look up their profile later (offline included) by member number.
 // - Chats: logs beeps and whispers per person and lets you reply with beeps.
@@ -10,8 +10,8 @@
 
 (async () => {
 
-	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_BlackBook", fullName: "BC Toolkit: Little Black Book", version: "1.2.8", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
+	// ModSDK: the full name groups the add-ons as "Nightstand: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "NS_BlackBook", fullName: "Nightstand: Little Black Book", version: "1.2.9", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-little-black-book" };
 	const TAG = "[BlackBook]";
 	// Server events that carry a full character payload (the others are partial deltas)
 	const FULL_SYNC_EVENTS = new Set(["ChatRoomSync", "ChatRoomSyncMemberJoin", "ChatRoomSyncCharacter", "ChatRoomSyncSingle"]);
@@ -2314,7 +2314,7 @@ mark{background:#c2185b;color:#fff;border-radius:2px}
 					else open().catch((err) => console.warn(TAG, err));
 				},
 				});
-			else console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it); open it with /book");
+			else console.warn(TAG, "bc-dock.js isn't loaded (the Nightstand script brings it); open it with /book");
 			renderTab();
 			refreshBadge().catch((err) => console.warn(TAG, err));
 		}

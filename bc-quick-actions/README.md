@@ -1,6 +1,6 @@
 # Quick Actions
 
-*Part of [BC Toolkit](../README.md).*
+*Part of [Nightstand](../README.md).*
 
 A panel in Bondage Club chat rooms for doing activities (kiss, caress, wiggle, struggle, ...)
 without opening the character dialog and hunting through body zones every time.
@@ -52,7 +52,7 @@ to be usable for spam:
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+2. Install **[Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)**, the one script for all the add-ons, and
    confirm in Tampermonkey.
 3. Reload the game. Quick Actions runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).

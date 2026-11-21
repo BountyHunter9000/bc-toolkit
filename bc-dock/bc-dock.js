@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
 // BC Dock: a rail of tabs on the screen edge for Little Black Book, Quick Actions and Vibe Link.
 // Clicking a tab slides its panel out beside the rail (one at a time), or runs the add-on's own
-// action (Little Black Book opens its big window). The BC Toolkit script (bc-toolkit.user.js) @requires this file,
+// action (Little Black Book opens its big window). The Nightstand script (nightstand.user.js) @requires this file,
 // and the dock is then also the loader: ⚙ → Add-ons picks which add-ons run and at which version. The first copy to
 // run creates window.BCDock; later copies of the same or an older version leave it alone, and a newer version takes
 // over, keeping the panels already added. See README.md.
 "use strict";
 
 (() => {
-	const VERSION = 19; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the BC Toolkit loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a BC Toolkit page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail); 19: steps aside for the game's toast notices (R134 beeps), code cleanup
+	const VERSION = 20; // 3: add-on versions in the header, tooltips and ⚙; 4: per-panel minWidth/maxWidth; 5: steps aside for game popups; 6: slimmer ⚙ panel; 7: themes; 8: Royal (blue/gold); 9: says when the dev folder moved; 10: developer tools only when a loader turns them on; 11: Little Black Book; 12: Afterglow in the developer reload; 13: character name in the browser tab, title markers for add-ons, Quiet, Held Remote and Vibe Fix in the developer reload; 14: the Nightstand loader (⚙ → Add-ons, a version for each add-on); 15: checks for add-on updates every 24 h and points them out on ⚙; 16: a Nightstand page in the game's Preferences → Extensions, test versions (⚙ → Show test versions); 17: no stray "null" in ⚙ and the Preferences page; 18: floating windows (drag a panel's title bar off the rail); 19: steps aside for the game's toast notices (R134 beeps), code cleanup; 20: renamed Nightstand (was BC Toolkit)
 	const prev = window.BCDock;
 	if (prev && prev.version >= VERSION && !window.__bcDockReload) return;
 	delete window.__bcDockReload;
@@ -337,7 +337,7 @@
 		const pct = Math.round(state.opacity * 100);
 		const out = el("span", {}, `${pct}%`);
 		cfgBody.replaceChildren(...kids(
-			// With the BC Toolkit loader, the add-on menus come first
+			// With the Nightstand loader, the add-on menus come first
 			...(tkOn() ? [el("h4", { style: "margin-top:0" }, "Add-ons"), ...tkSection(), el("h4", {}, "Dock")] : []),
 			el(
 				"div",
@@ -407,7 +407,7 @@
 		));
 	}
 
-	// The add-ons in the dock and their versions (without the BC Toolkit loader, whose menus say it instead)
+	// The add-ons in the dock and their versions (without the Nightstand loader, whose menus say it instead)
 	function versList() {
 		return el(
 			"div",
@@ -704,7 +704,7 @@
 	}
 
 	function place() {
-		// With the BC Toolkit loader, ⚙ stays reachable even before any add-on shows a tab (its menus switch them on)
+		// With the Nightstand loader, ⚙ stays reachable even before any add-on shows a tab (its menus switch them on)
 		const any = [...panels.values()].some((q) => q.visible) || (tk.started && tkOn());
 		rail.className = `${state.side}${any ? "" : " empty"}`;
 		if (!any && active === CFG) return setActive(null);
@@ -1404,8 +1404,8 @@
 		];
 	}
 
-	// ---------- BC Toolkit loader ----------
-	// With the one BC Toolkit script (bc-toolkit.user.js) the dock also loads the add-ons. ⚙ → Add-ons has a menu for
+	// ---------- Nightstand loader ----------
+	// With the one Nightstand script (nightstand.user.js) the dock also loads the add-ons. ⚙ → Add-ons has a menu for
 	// each: Off, Latest, or a fixed version. The list of add-ons and their versions (toolkit.json) comes from the
 	// repository's main branch; each add-on's file comes from its release tag through jsDelivr, exactly like the
 	// separate scripts' @require lines, so a version never changes under you. Latest moves to a new release when the
@@ -1472,7 +1472,7 @@
 				const r = await fetch(u, { cache: "no-store", signal: ctl.signal });
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
 				const list = tkClean(await r.json());
-				if (!list) throw new Error("not a BC Toolkit list");
+				if (!list) throw new Error("not a Nightstand list");
 				tk.list = list;
 				tk.listAt = Date.now();
 				tk.listErr = null;
@@ -1497,7 +1497,7 @@
 	}
 
 	// Test versions are pre-release tags (ag-v0.9.0-beta.1). They're only offered while "Show test versions" is on in ⚙
-	// (saved in this browser; the BC Toolkit (beta) script turns it on until you switch it off). Latest never picks one.
+	// (saved in this browser; the Nightstand (beta) script turns it on until you switch it off). Latest never picks one.
 	const TK_VER = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/;
 	/** @param {unknown} v */
 	const tkIsTest = (v) => typeof v === "string" && v.includes("-");
@@ -1665,7 +1665,7 @@
 			if (v && !tk.mine[a.id]) tk.own[a.id] = v;
 		}
 		for (const a of tk.list?.addons || []) await tkApply(a);
-		console.log("[BCDock]", `BC Toolkit: ${Object.entries(tk.mine).map(([id, v]) => `${id} v${v}`).join(", ") || "no add-ons switched on (⚙ → Add-ons)"}`);
+		console.log("[BCDock]", `Nightstand: ${Object.entries(tk.mine).map(([id, v]) => `${id} v${v}`).join(", ") || "no add-ons switched on (⚙ → Add-ons)"}`);
 		tkRender();
 	}
 
@@ -1817,7 +1817,7 @@
 	}
 
 	// ---------- the game's Preferences → Extensions ----------
-	// A "BC Toolkit" page there, beside WCE's, BCX's and the rest: the add-on menus (with the loader) or the versions
+	// A "Nightstand" page there, beside WCE's, BCX's and the rest: the add-on menus (with the loader) or the versions
 	// running, and a button for the dock's ⚙. The game draws the screen and its exit button; the content is a panel
 	// placed over the canvas with the game's own positioning, so it follows the window size.
 	const EXT_ID = "BCToolkit";
@@ -1829,13 +1829,13 @@
 	function extRender() {
 		if (!extBox) return;
 		extBox.replaceChildren(...kids(
-			el("h3", {}, "BC Toolkit"),
+			el("h3", {}, "Nightstand"),
 			el(
 				"div",
 				{ class: "hint" },
 				tkOn()
 					? "Which add-ons run, and at which version. Changes apply right away. The same menus are in the dock's ⚙."
-					: "The add-ons running now. With the BC Toolkit script you can also pick which run, and their versions, here."
+					: "The add-ons running now. With the Nightstand script you can also pick which run, and their versions, here."
 			),
 			el("h4", {}, "Add-ons"),
 			...(tkOn() ? tkSection() : [versList()]),
@@ -1853,7 +1853,7 @@
 	}
 	const extSetting = {
 		Identifier: EXT_ID,
-		ButtonText: "BC Toolkit",
+		ButtonText: "Nightstand",
 		load() {
 			extBox?.remove();
 			extBox = el("div", { id: "bcd-ext" });
@@ -1942,7 +1942,7 @@
 		_devRoot: () => dev.root,
 		_devKnownSet: (/** @type {Record<string, number>} */ k) => (dev.known = { ...(dev.known || {}), ...k }),
 		_titleMarks: () => [...titleMarks],
-		// BC Toolkit loader (bc-toolkit.user.js): what's loaded, menus, and a fresh look at the list
+		// Nightstand loader (nightstand.user.js): what's loaded, menus, and a fresh look at the list
 		toolkit: {
 			status: () => Object.fromEntries((tk.list?.addons || []).map((a) => [a.id, { pick: tkPick(a.id), running: tkRunning(a), status: tkStatus(a)[1] }])),
 			set: tkSet,

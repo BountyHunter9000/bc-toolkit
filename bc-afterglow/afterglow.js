@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2026 BountyHunter9000. Part of BC Toolkit: https://github.com/BountyHunter9000/bc-toolkit
+// Copyright (C) 2026 BountyHunter9000. Part of Nightstand: https://github.com/BountyHunter9000/bc-toolkit
 // Afterglow for Bondage Club
 // Keeps count of your orgasms, ruined orgasms, resisted orgasms and denials, the time since your last orgasm, and
 // your records: the longest you've gone without one, and the most denials (ruins, resists) between two.
@@ -10,8 +10,8 @@
 
 (async () => {
 
-	// ModSDK: the full name groups the add-ons as "BC Toolkit: …" in mod lists, with a link to the add-on's folder
-	const MOD_INFO = { name: "BCT_Afterglow", fullName: "BC Toolkit: Afterglow", version: "0.8.3", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
+	// ModSDK: the full name groups the add-ons as "Nightstand: …" in mod lists, with a link to the add-on's folder
+	const MOD_INFO = { name: "NS_Afterglow", fullName: "Nightstand: Afterglow", version: "0.8.4", repository: "https://github.com/BountyHunter9000/bc-toolkit/tree/main/bc-afterglow" };
 	const TAG = "[Afterglow]";
 	const SETTINGS_KEY = "Afterglow";
 	const LOG_MAX = 1000;
@@ -695,7 +695,7 @@
 `;
 		function mount() {
 			if (panel) return;
-			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the BC Toolkit script brings it), so there's no panel");
+			if (!window.BCDock) return console.warn(TAG, "bc-dock.js isn't loaded (the Nightstand script brings it), so there's no panel");
 			document.head.append(h("style", { id: "ag-style" }, CSS));
 			panel = BCDock.add({ id: "afterglow", title: "Afterglow", icon: "✨", order: 40, version: MOD_INFO.version, width: 220, minWidth: 190, maxWidth: 300, alignStart: true, onToggle: () => (panel?.isOpen() && lookNow(), render()) });
 			root = panel.body || null;

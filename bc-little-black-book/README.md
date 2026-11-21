@@ -1,6 +1,6 @@
 # Little Black Book
 
-*Part of [BC Toolkit](../README.md). Formerly called Friend Manager: same add-on, same data.*
+*Part of [Nightstand](../README.md). Formerly called Friend Manager: same add-on, same data.*
 
 A Bondage Club add-on that combines a friend/profile cache with a chat client: beep and whisper
 conversations, a log of every chat room you enter, a room browser, and profiles of everyone you've
@@ -143,8 +143,8 @@ come from add-on markers in shared settings (MBS, ULTRAbc, LianChat, …) and fr
 `ExtensionSettings` are never sent to other players. Each add-on chip links to its website or source
 (hover for a description), and **About these add-ons** lists what each one does. Names and links come
 from FUSAM's add-on directory, built into the script. On your own profile, which lists the add-ons loaded right
-now, an add-on the directory doesn't know links to the repository it reports to ModSDK (BC Toolkit's add-ons
-show as **BC Toolkit: Quiet** and so on). Anything else links to a GitHub search.
+now, an add-on the directory doesn't know links to the repository it reports to ModSDK (Nightstand's add-ons
+show as **Nightstand: Quiet** and so on). Anything else links to a GitHub search.
 
 ### ⚙ Settings
 Per account, saved with that account's data.
@@ -206,7 +206,7 @@ database (which is only read).
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) in Chrome or Edge.
-2. Install **[BC Toolkit](https://github.com/BountyHunter9000/bc-toolkit/raw/main/bc-toolkit.user.js)**, the one script for all the add-ons, and
+2. Install **[Nightstand](https://github.com/BountyHunter9000/bc-toolkit/raw/main/nightstand.user.js)**, the one script for all the add-ons, and
    confirm in Tampermonkey.
 3. Reload the game. Little Black Book runs at its latest release; the dock's ⚙ → **Add-ons** turns it off or picks an
    earlier version (see [One script for all add-ons](../bc-dock/README.md#one-script-for-all-add-ons)).
